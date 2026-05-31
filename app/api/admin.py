@@ -15,6 +15,7 @@ from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
+from app.models.message import Message
 from app.models.post import Post
 from app.models.system_config import AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag
 from app.models.user import User
@@ -245,6 +246,79 @@ def system_message_item(message: AdminSystemMessage) -> dict[str, Any]:
     }
 
 
+def notification_item(message: Message) -> dict[str, Any]:
+    return {
+        "messageId": message.message_id,
+        "title": message.title or "",
+        "content": message.content or "",
+        "type": message.type,
+        "isRead": message.is_read,
+        "time": format_time(message.create_time),
+        "createdAt": format_time(message.create_time),
+        "updatedAt": format_time(message.update_time),
+        "sourceId": message.post_id,
+    }
+
+
+def ensure_admin_notification(db: Session, admin_subject: str, message: AdminSystemMessage) -> None:
+    admin_user_id = f"admin:{admin_subject}"
+    exists = (
+        db.query(Message)
+        .filter(Message.user_id == admin_user_id, Message.type == "admin_system", Message.post_id == message.message_id)
+        .one_or_none()
+    )
+    if exists is not None:
+        exists.title = message.title
+        exists.content = message.content
+        exists.last_time = utc_now()
+        return
+    db.add(
+        Message(
+            message_id=new_business_id("ntf"),
+            user_id=admin_user_id,
+            sender_id=None,
+            type="admin_system",
+            title=message.title,
+            content=message.content,
+            post_id=message.message_id,
+            is_read=False,
+        )
+    )
+
+
+def publish_system_message_to_users(db: Session, message: AdminSystemMessage) -> int:
+    query = db.query(User).filter(User.is_active.is_(True))
+    if message.target == "new":
+        query = query.order_by(User.create_time.desc()).limit(200)
+    users = query.all()
+    created = 0
+    for user in users:
+        exists = (
+            db.query(Message)
+            .filter(Message.user_id == user.user_id, Message.type == "system", Message.post_id == message.message_id)
+            .one_or_none()
+        )
+        if exists is not None:
+            exists.title = message.title
+            exists.content = message.content
+            exists.last_time = utc_now()
+            continue
+        db.add(
+            Message(
+                message_id=new_business_id("ntf"),
+                user_id=user.user_id,
+                sender_id=None,
+                type="system",
+                title=message.title,
+                content=message.content,
+                post_id=message.message_id,
+                is_read=False,
+            )
+        )
+        created += 1
+    return created
+
+
 def get_or_create_agreement(db: Session, agreement_type: str) -> AdminAgreement:
     agreement = db.query(AdminAgreement).filter(AdminAgreement.type == agreement_type).one_or_none()
     if agreement is not None:
@@ -306,6 +380,69 @@ def dashboard_metrics(
             "totalLikes": total_likes,
         }
     )
+
+
+@router.get(
+    "/notifications",
+    response_model=AdminResponse,
+    summary="后台通知下拉",
+    description="PC 后台右上角消息通知下拉接口，返回未读数量和最近通知列表。",
+)
+def list_admin_notifications(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+    limit: Annotated[int, Query(ge=1, le=50, description="返回数量")] = 10,
+) -> dict[str, Any]:
+    admin_user_id = f"admin:{admin_subject}"
+    recent_system_messages = db.query(AdminSystemMessage).order_by(AdminSystemMessage.create_time.desc()).limit(limit).all()
+    for system_message in recent_system_messages:
+        ensure_admin_notification(db, admin_subject, system_message)
+    db.commit()
+
+    query = db.query(Message).filter(Message.user_id == admin_user_id)
+    unread_count = query.filter(Message.is_read.is_(False)).count()
+    messages = query.order_by(Message.create_time.desc()).limit(limit).all()
+    return ok({"unreadCount": unread_count, "list": [notification_item(message) for message in messages]})
+
+
+@router.put(
+    "/notifications/read-all",
+    response_model=AdminResponse,
+    summary="后台通知全部已读",
+    description="PC 后台右上角消息通知下拉全部标记已读。",
+)
+def read_all_admin_notifications(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    admin_user_id = f"admin:{admin_subject}"
+    db.query(Message).filter(Message.user_id == admin_user_id, Message.is_read.is_(False)).update(
+        {Message.is_read: True, Message.last_time: utc_now()},
+        synchronize_session=False,
+    )
+    db.commit()
+    return ok(None, "已全部标记为已读")
+
+
+@router.put(
+    "/notifications/{messageId}/read",
+    response_model=AdminResponse,
+    summary="后台通知已读",
+    description="PC 后台右上角消息通知下拉单条标记已读。",
+)
+def read_admin_notification(
+    messageId: Annotated[str, Path(description="通知消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    admin_user_id = f"admin:{admin_subject}"
+    message = db.query(Message).filter(Message.user_id == admin_user_id, Message.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "通知未找到")
+    message.is_read = True
+    message.last_time = utc_now()
+    db.commit()
+    return ok(notification_item(message), "已标记为已读")
 
 
 @router.get(
@@ -971,7 +1108,7 @@ def list_admin_system_messages(
 def create_admin_system_message(
     payload: AdminSystemMessagePayload,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[str, Depends(get_admin_subject)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
     message = AdminSystemMessage(
         message_id=new_business_id("msg"),
@@ -983,9 +1120,16 @@ def create_admin_system_message(
         is_pinned=payload.isPinned,
     )
     db.add(message)
+    db.flush()
+    ensure_admin_notification(db, admin_subject, message)
+    pushed_count = 0
+    if message.status == "published":
+        pushed_count = publish_system_message_to_users(db, message)
     db.commit()
     db.refresh(message)
-    return ok(system_message_item(message), "系统消息创建成功")
+    data = system_message_item(message)
+    data["pushedCount"] = pushed_count
+    return ok(data, "系统消息创建成功")
 
 
 @router.get(
@@ -1015,11 +1159,12 @@ def update_admin_system_message(
     messageId: Annotated[str, Path(description="业务系统消息 ID")],
     payload: AdminSystemMessagePayload,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[str, Depends(get_admin_subject)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
     message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
     if message is None:
         raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    old_status = message.status
     message.title = payload.title
     message.content = payload.content
     message.type = payload.type
@@ -1027,9 +1172,62 @@ def update_admin_system_message(
     message.status = payload.status
     message.is_pinned = payload.isPinned
     message.last_time = utc_now()
+    ensure_admin_notification(db, admin_subject, message)
+    pushed_count = 0
+    if message.status == "published" and old_status != "published":
+        pushed_count = publish_system_message_to_users(db, message)
     db.commit()
     db.refresh(message)
-    return ok(system_message_item(message), "系统消息更新成功")
+    data = system_message_item(message)
+    data["pushedCount"] = pushed_count
+    return ok(data, "系统消息更新成功")
+
+
+@router.put(
+    "/system-messages/{messageId}/push",
+    response_model=AdminResponse,
+    summary="推送系统消息",
+    description="系统配置 - 将草稿系统消息发布，并同步生成用户端通知消息。",
+)
+def push_admin_system_message(
+    messageId: Annotated[str, Path(description="业务系统消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    message.status = "published"
+    message.last_time = utc_now()
+    ensure_admin_notification(db, admin_subject, message)
+    pushed_count = publish_system_message_to_users(db, message)
+    db.commit()
+    db.refresh(message)
+    data = system_message_item(message)
+    data["pushedCount"] = pushed_count
+    return ok(data, "系统消息已推送")
+
+
+@router.put(
+    "/system-messages/{messageId}/retract",
+    response_model=AdminResponse,
+    summary="撤回系统消息",
+    description="系统配置 - 将已发布系统消息撤回为草稿状态。",
+)
+def retract_admin_system_message(
+    messageId: Annotated[str, Path(description="业务系统消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    message.status = "draft"
+    message.last_time = utc_now()
+    ensure_admin_notification(db, admin_subject, message)
+    db.commit()
+    db.refresh(message)
+    return ok(system_message_item(message), "系统消息已撤回")
 
 
 @router.delete(

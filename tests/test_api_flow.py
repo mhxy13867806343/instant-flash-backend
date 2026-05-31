@@ -260,6 +260,57 @@ def test_admin_system_config_flow() -> None:
     assert client.delete(f"/api/admin/system-messages/{message_id}", headers=headers).status_code == 200
 
 
+def test_notification_dropdowns_for_admin_and_user() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    user_token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_notify", "nickname": "Notify User"},
+    )
+    user_headers = {"Authorization": f"Bearer {user_token_response.json()['accessToken']}"}
+    admin_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['token']}"}
+
+    system_message = client.post(
+        "/api/admin/system-messages",
+        json={
+            "title": "我的家",
+            "content": "这是一条要展示在 PC 和用户端通知下拉里的系统消息",
+            "type": "notification",
+            "target": "all",
+            "status": "published",
+            "isPinned": False,
+        },
+        headers=admin_headers,
+    )
+    assert system_message.status_code == 200
+    assert system_message.json()["data"]["pushedCount"] == 1
+
+    admin_notifications = client.get("/api/admin/notifications", headers=admin_headers)
+    assert admin_notifications.status_code == 200
+    assert admin_notifications.json()["data"]["unreadCount"] == 1
+    admin_message_id = admin_notifications.json()["data"]["list"][0]["messageId"]
+    assert admin_notifications.json()["data"]["list"][0]["title"] == "我的家"
+
+    user_notifications = client.get("/api/messages/notifications", headers=user_headers)
+    assert user_notifications.status_code == 200
+    assert user_notifications.json()["data"]["unreadCount"] == 1
+    user_message_id = user_notifications.json()["data"]["list"][0]["messageId"]
+    assert user_notifications.json()["data"]["list"][0]["title"] == "我的家"
+
+    read_user = client.put(f"/api/messages/{user_message_id}/read", headers=user_headers)
+    assert read_user.status_code == 200
+    assert read_user.json()["data"]["isRead"] is True
+    assert client.get("/api/messages/notifications", headers=user_headers).json()["data"]["unreadCount"] == 0
+
+    read_admin = client.put(f"/api/admin/notifications/{admin_message_id}/read", headers=admin_headers)
+    assert read_admin.status_code == 200
+    assert read_admin.json()["data"]["isRead"] is True
+    assert client.get("/api/admin/notifications", headers=admin_headers).json()["data"]["unreadCount"] == 0
+
+
 def test_dev_token_unique_identity_conflict_returns_message() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
