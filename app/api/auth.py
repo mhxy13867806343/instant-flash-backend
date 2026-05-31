@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.utils import new_business_id
@@ -12,6 +13,13 @@ from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxL
 router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
 
 
+def fail(status_code: int, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": status_code, "message": message, "data": {}},
+    )
+
+
 @router.post(
     "/dev-token",
     response_model=TokenResponse,
@@ -20,7 +28,22 @@ router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
 )
 def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user_id = payload.user_id or new_business_id("usr")
-    user = db.query(User).filter(User.user_id == user_id).one_or_none()
+    lookup_conditions = [User.user_id == user_id]
+    if payload.openid:
+        lookup_conditions.append(User.openid == payload.openid)
+    if payload.unionid:
+        lookup_conditions.append(User.unionid == payload.unionid)
+    if payload.phone:
+        lookup_conditions.append(User.phone == payload.phone)
+
+    matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
+    if len({user.id for user in matched_users}) > 1:
+        raise fail(status.HTTP_400_BAD_REQUEST, "调试用户标识冲突，请检查 userId/openid/unionid/phone 是否属于同一用户")
+
+    user = matched_users[0] if matched_users else None
+    if user is not None and user.user_id != user_id:
+        raise fail(status.HTTP_400_BAD_REQUEST, "该 openid/unionid/phone 已绑定其他 userId")
+
     if user is None:
         user = User(user_id=user_id)
         db.add(user)

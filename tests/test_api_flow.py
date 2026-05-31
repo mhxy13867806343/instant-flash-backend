@@ -12,6 +12,18 @@ from app.db.session import engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 
+def test_index_page() -> None:
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "即闪后端 API 服务" in response.text
+    assert "/docs" in response.text
+    assert "Authorization: Bearer" in response.text
+
+
 def test_content_flow() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -160,6 +172,29 @@ def test_auth_errors_are_unified() -> None:
     invalid_token = client.get("/api/user/profile", headers={"Authorization": "Bearer wrong"})
     assert invalid_token.status_code == 401
     assert invalid_token.json() == {"code": 401, "message": "登录已过期或无效", "data": {}}
+
+
+def test_dev_token_unique_identity_conflict_returns_message() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_a", "openid": "openid_same", "phone": "13800000000"},
+    )
+    assert created.status_code == 200
+
+    conflict = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_b", "openid": "openid_same"},
+    )
+    assert conflict.status_code == 400
+    assert conflict.json() == {
+        "code": 400,
+        "message": "该 openid/unionid/phone 已绑定其他 userId",
+        "data": {},
+    }
 
 
 def test_wx_login() -> None:
