@@ -959,17 +959,33 @@ def seed_announcements_if_empty(db: Session) -> None:
 
 
 def seed_versions_if_empty(db: Session) -> None:
-    if db.query(AdminVersion).count():
-        return
     now = format_time(utc_now())
-    db.add_all(
-        [
-            AdminVersion(version_id=new_business_id("ver"), platform="iOS", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
-            AdminVersion(version_id=new_business_id("ver"), platform="Android", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
-            AdminVersion(version_id=new_business_id("ver"), platform="HarmonyOS", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
-        ]
-    )
-    db.commit()
+    defaults = {
+        "iOS": ("1.0.0", "100"),
+        "Android": ("1.0.0", "100"),
+        "HarmonyOS": ("1.0.0", "100"),
+    }
+    existing_platforms = {row[0] for row in db.query(AdminVersion.platform).filter(AdminVersion.status != "deprecated").distinct().all()}
+    missing_versions = [
+        AdminVersion(
+            version_id=new_business_id("ver"),
+            platform=platform,
+            version=version,
+            build=build,
+            force_update=False,
+            status="released",
+            beta_pct=100,
+            notes="首个稳定版本",
+            notes_type="text",
+            download_url="",
+            release_time=now,
+        )
+        for platform, (version, build) in defaults.items()
+        if platform not in existing_platforms
+    ]
+    if missing_versions:
+        db.add_all(missing_versions)
+        db.commit()
 
 
 def seed_accounts_if_empty(db: Session) -> None:
