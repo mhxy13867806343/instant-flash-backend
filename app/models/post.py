@@ -26,7 +26,7 @@ class Post(TimestampMixin, Base):
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     comment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     share_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="published", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="online", nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     delete_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -34,4 +34,3 @@ class Post(TimestampMixin, Base):
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     likes = relationship("PostLike", back_populates="post", cascade="all, delete-orphan")
     shares = relationship("PostShare", back_populates="post", cascade="all, delete-orphan")
-

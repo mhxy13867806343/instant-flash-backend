@@ -22,12 +22,25 @@ from app.schemas.share import ShareCreate, ShareOut
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
+VISIBLE_POST_STATUSES = ("online", "published")
+
+
+def _page_to_limit_offset(page: int | None, page_size: int | None, limit: int, offset: int) -> tuple[int, int]:
+    if page is None:
+        return limit, offset
+    resolved_limit = page_size or limit
+    return resolved_limit, (page - 1) * resolved_limit
+
 
 def _get_visible_post(db: Session, post_id: str) -> Post:
     post = (
         db.query(Post)
         .options(joinedload(Post.author))
-        .filter(Post.post_id == post_id, Post.is_deleted.is_(False))
+        .filter(
+            Post.post_id == post_id,
+            Post.is_deleted.is_(False),
+            Post.status.in_(VISIBLE_POST_STATUSES),
+        )
         .one_or_none()
     )
     if post is None:
@@ -52,8 +65,14 @@ def list_posts(
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100)] = None,
 ) -> PostListResponse:
-    base_query = db.query(Post).filter(Post.is_deleted.is_(False))
+    limit, offset = _page_to_limit_offset(page, page_size, limit, offset)
+    base_query = db.query(Post).filter(
+        Post.is_deleted.is_(False),
+        Post.status.in_(VISIBLE_POST_STATUSES),
+    )
     total = base_query.with_entities(func.count(Post.id)).scalar() or 0
     posts = (
         base_query.options(joinedload(Post.author))
@@ -69,6 +88,25 @@ def list_posts(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/{post_id}/comments", response_model=list[CommentOut])
+def list_post_comments(
+    post_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(alias="pageSize", ge=1, le=100)] = 20,
+) -> list[CommentOut]:
+    _get_visible_post(db, post_id)
+    comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id, Comment.is_deleted.is_(False))
+        .order_by(Comment.create_time.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [comment_out(comment) for comment in comments]
 
 
 @router.post("", response_model=PostOut, status_code=status.HTTP_201_CREATED)
@@ -211,17 +249,27 @@ def create_share(
     post_id: str,
     payload: ShareCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user_required)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> ShareOut:
     post = _get_visible_post(db, post_id)
+    post.share_count += 1
+    post.last_time = utc_now()
+    if current_user is None:
+        db.commit()
+        return ShareOut(
+            postId=post_id,
+            userId="",
+            scene=payload.scene,
+            platform=payload.platform,
+            createdAt=post.last_time,
+        )
+
     share = PostShare(
         post_id=post_id,
         user_id=current_user.user_id,
         scene=payload.scene,
         platform=payload.platform,
     )
-    post.share_count += 1
-    post.last_time = utc_now()
     db.add(share)
     db.commit()
     db.refresh(share)

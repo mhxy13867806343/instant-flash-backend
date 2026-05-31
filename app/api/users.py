@@ -47,7 +47,12 @@ def my_posts(
     current_user: Annotated[User, Depends(get_current_user_required)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100)] = None,
 ) -> PostListResponse:
+    if page is not None:
+        limit = page_size or limit
+        offset = (page - 1) * limit
     base_query = db.query(Post).filter(
         Post.user_id == current_user.user_id, Post.is_deleted.is_(False)
     )
@@ -118,4 +123,3 @@ def my_shares(
         .all()
     )
     return [share_out(share) for share in shares]
-

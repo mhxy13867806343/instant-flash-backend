@@ -12,8 +12,25 @@ class DevTokenRequest(BaseModel):
     avatar: str | None = None
 
 
+class WxLoginRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=256)
+    nickname: str | None = Field(default=None, max_length=64)
+    avatar: str | None = None
+    phone: str | None = Field(default=None, max_length=32)
+    gender: str | None = Field(default=None, max_length=16)
+    province: str | None = Field(default=None, max_length=64)
+    city: str | None = Field(default=None, max_length=64)
+    district: str | None = Field(default=None, max_length=64)
+
+
 class TokenResponse(BaseModel):
     accessToken: str
     tokenType: str = "Bearer"
     userId: str
 
+
+class WxLoginResponse(BaseModel):
+    accessToken: str
+    token: str
+    tokenType: str = "Bearer"
+    user: dict[str, object | None]
