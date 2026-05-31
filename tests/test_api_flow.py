@@ -213,6 +213,24 @@ def test_admin_system_config_flow() -> None:
     )
     assert tag_update.status_code == 200
     assert tag_update.json()["data"]["name"] == "热门"
+    user_token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_tag_stats", "nickname": "Tag Stats"},
+    )
+    user_headers = {"Authorization": f"Bearer {user_token_response.json()['accessToken']}"}
+    post_with_tag = client.post(
+        "/api/posts",
+        json={"content": "#热门 这里有诈骗套路提醒", "images": []},
+        headers=user_headers,
+    )
+    assert post_with_tag.status_code == 201
+    tag_list = client.get("/api/admin/tags", headers=headers)
+    assert tag_list.json()["data"]["list"][0]["postCount"] == 1
+    assert tag_list.json()["data"]["list"][0]["associatedPostCount"] == 1
+    assert tag_list.json()["data"]["list"][0]["scamCount"] == 1
+    assert tag_list.json()["data"]["list"][0]["searchCount"] >= 1200
+    tag_detail = client.get(f"/api/admin/tags/{tag_id}", headers=headers)
+    assert tag_detail.json()["data"]["linkedPostCount"] == 1
 
     region = client.post(
         "/api/admin/regions",

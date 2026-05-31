@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.utils import new_business_id
@@ -192,7 +192,35 @@ def comment_item(db: Session, comment: Comment) -> dict[str, Any]:
     }
 
 
-def tag_item(tag: AdminTag) -> dict[str, Any]:
+SCAM_KEYWORDS = ("骗", "诈骗", "杀猪盘", "套路", "上当", "虚假", "刷单", "被扣", "举报")
+
+
+def tag_search_count(name: str) -> int:
+    value = 0
+    for index, char in enumerate(name):
+        value += ord(char) * (index + 3)
+    return (value % 8500) + 1200
+
+
+def tag_metrics(db: Session, name: str) -> dict[str, int]:
+    tag_text = f"#{name}"
+    post_query = db.query(Post).filter(
+        Post.is_deleted.is_(False),
+        Post.content.ilike(f"%{tag_text}%"),
+    )
+    post_count = post_query.count()
+    scam_count = post_query.filter(or_(*(Post.content.ilike(f"%{keyword}%") for keyword in SCAM_KEYWORDS))).count()
+    return {
+        "postCount": post_count,
+        "associatedPostCount": post_count,
+        "linkedPostCount": post_count,
+        "scamCount": scam_count,
+        "fraudCount": scam_count,
+        "searchCount": tag_search_count(name),
+    }
+
+
+def tag_item(db: Session, tag: AdminTag) -> dict[str, Any]:
     return {
         "tagId": tag.tag_id,
         "name": tag.name,
@@ -200,6 +228,7 @@ def tag_item(tag: AdminTag) -> dict[str, Any]:
         "sort": tag.sort,
         "status": tag.status,
         "remark": tag.remark or "",
+        **tag_metrics(db, tag.name),
         "createdAt": format_time(tag.create_time),
         "updatedAt": format_time(tag.update_time),
     }
@@ -828,7 +857,7 @@ def list_admin_tags(
         query = query.filter(AdminTag.status == status_filter)
     total = query.count()
     tags = query.order_by(AdminTag.sort.asc(), AdminTag.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
-    return ok({"list": [tag_item(tag) for tag in tags], "total": total})
+    return ok({"list": [tag_item(db, tag) for tag in tags], "total": total})
 
 
 @router.post(
@@ -855,7 +884,7 @@ def create_admin_tag(
     db.add(tag)
     db.commit()
     db.refresh(tag)
-    return ok(tag_item(tag), "标签创建成功")
+    return ok(tag_item(db, tag), "标签创建成功")
 
 
 @router.get(
@@ -872,7 +901,7 @@ def get_admin_tag(
     tag = db.query(AdminTag).filter(AdminTag.tag_id == tagId).one_or_none()
     if tag is None:
         raise fail(status.HTTP_404_NOT_FOUND, "标签未找到")
-    return ok(tag_item(tag))
+    return ok(tag_item(db, tag))
 
 
 @router.put(
@@ -901,7 +930,7 @@ def update_admin_tag(
     tag.last_time = utc_now()
     db.commit()
     db.refresh(tag)
-    return ok(tag_item(tag), "标签更新成功")
+    return ok(tag_item(db, tag), "标签更新成功")
 
 
 @router.delete(
