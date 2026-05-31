@@ -230,9 +230,57 @@ def test_admin_system_config_flow() -> None:
     )
     assert dictionary.status_code == 200
     dict_id = dictionary.json()["data"]["dictId"]
+    child_dictionary = client.post(
+        "/api/admin/dictionaries",
+        json={
+            "type": "post_status",
+            "parentId": dict_id,
+            "label": "精选动态",
+            "value": "online_featured",
+            "sort": 1,
+            "status": "enabled",
+        },
+        headers=headers,
+    )
+    assert child_dictionary.status_code == 200
+    child_dict_id = child_dictionary.json()["data"]["dictId"]
+    assert child_dictionary.json()["data"]["parentId"] == dict_id
+    duplicate_child_label = client.post(
+        "/api/admin/dictionaries",
+        json={
+            "type": "post_status",
+            "parentId": dict_id,
+            "label": "精选动态",
+            "value": "online_hot",
+            "sort": 2,
+            "status": "enabled",
+        },
+        headers=headers,
+    )
+    assert duplicate_child_label.status_code == 400
+    assert duplicate_child_label.json()["message"] == "同一上级下字典标签已存在"
+    duplicate_child_value = client.post(
+        "/api/admin/dictionaries",
+        json={
+            "type": "post_status",
+            "parentId": dict_id,
+            "label": "推荐动态",
+            "value": "online_featured",
+            "sort": 3,
+            "status": "enabled",
+        },
+        headers=headers,
+    )
+    assert duplicate_child_value.status_code == 400
+    assert duplicate_child_value.json()["message"] == "同一上级下字典键值已存在"
     dict_list = client.get("/api/admin/dictionaries", params={"type": "post_status"}, headers=headers)
     assert dict_list.status_code == 200
     assert dict_list.json()["data"]["list"][0]["dictId"] == dict_id
+    assert dict_list.json()["data"]["list"][0]["children"][0]["dictId"] == child_dict_id
+    dict_children = client.get(f"/api/admin/dictionaries/{dict_id}/children", headers=headers)
+    assert dict_children.status_code == 200
+    assert dict_children.json()["data"]["parent"]["dictId"] == dict_id
+    assert dict_children.json()["data"]["list"][0]["parentId"] == dict_id
 
     system_message = client.post(
         "/api/admin/system-messages",
@@ -256,6 +304,8 @@ def test_admin_system_config_flow() -> None:
 
     assert client.delete(f"/api/admin/tags/{tag_id}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/regions/{region_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/dictionaries/{dict_id}", headers=headers).status_code == 400
+    assert client.delete(f"/api/admin/dictionaries/{child_dict_id}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/dictionaries/{dict_id}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/system-messages/{message_id}", headers=headers).status_code == 200
 

@@ -62,6 +62,7 @@ class AdminRegionPayload(BaseModel):
 
 class AdminDictionaryPayload(BaseModel):
     type: str = Field(min_length=1, max_length=64, title="字典类型", description="字典分组编码，例如 post_status")
+    parentId: str | None = Field(default=None, max_length=64, title="上级字典 ID", description="上级字典项的业务 ID；为空表示顶级字典项")
     label: str = Field(min_length=1, max_length=128, title="字典标签", description="展示给用户看的中文名称")
     value: str = Field(min_length=1, max_length=128, title="字典值", description="前后端传递使用的值")
     sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
@@ -221,6 +222,7 @@ def region_item(region: AdminRegion) -> dict[str, Any]:
 def dictionary_item(dictionary: AdminDictionary) -> dict[str, Any]:
     return {
         "dictId": dictionary.dict_id,
+        "parentId": dictionary.parent_id,
         "type": dictionary.type,
         "label": dictionary.label,
         "value": dictionary.value,
@@ -230,6 +232,75 @@ def dictionary_item(dictionary: AdminDictionary) -> dict[str, Any]:
         "createdAt": format_time(dictionary.create_time),
         "updatedAt": format_time(dictionary.update_time),
     }
+
+
+def dictionary_tree_items(dictionaries: list[AdminDictionary]) -> list[dict[str, Any]]:
+    children_by_parent: dict[str | None, list[AdminDictionary]] = {}
+    ids = {dictionary.dict_id for dictionary in dictionaries}
+    for dictionary in dictionaries:
+        parent_id = dictionary.parent_id if dictionary.parent_id in ids else None
+        children_by_parent.setdefault(parent_id, []).append(dictionary)
+
+    for children in children_by_parent.values():
+        children.sort(key=lambda item: (item.type, item.sort, item.create_time), reverse=False)
+
+    def build(parent_id: str | None) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for dictionary in children_by_parent.get(parent_id, []):
+            item = dictionary_item(dictionary)
+            item["children"] = build(dictionary.dict_id)
+            item["childCount"] = len(item["children"])
+            result.append(item)
+        return result
+
+    return build(None)
+
+
+def get_dictionary_or_404(db: Session, dict_id: str) -> AdminDictionary:
+    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dict_id).one_or_none()
+    if dictionary is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    return dictionary
+
+
+def validate_dictionary_parent(db: Session, parent_id: str | None, dictionary_type: str, self_id: str | None = None) -> None:
+    if not parent_id:
+        return
+    if parent_id == self_id:
+        raise fail(status.HTTP_400_BAD_REQUEST, "上级字典不能选择自己")
+    parent = get_dictionary_or_404(db, parent_id)
+    if parent.type != dictionary_type:
+        raise fail(status.HTTP_400_BAD_REQUEST, "上级字典类型必须和当前字典类型一致")
+    cursor = parent
+    while cursor.parent_id:
+        if cursor.parent_id == self_id:
+            raise fail(status.HTTP_400_BAD_REQUEST, "上级字典不能选择自己的下级")
+        cursor = get_dictionary_or_404(db, cursor.parent_id)
+
+
+def dictionary_scope_query(db: Session, dictionary_type: str, parent_id: str | None):
+    query = db.query(AdminDictionary).filter(AdminDictionary.type == dictionary_type)
+    if parent_id:
+        return query.filter(AdminDictionary.parent_id == parent_id)
+    return query.filter(AdminDictionary.parent_id.is_(None))
+
+
+def validate_dictionary_unique(
+    db: Session,
+    dictionary_type: str,
+    parent_id: str | None,
+    label: str,
+    value: str,
+    self_id: str | None = None,
+) -> None:
+    query = dictionary_scope_query(db, dictionary_type, parent_id)
+    if self_id:
+        query = query.filter(AdminDictionary.dict_id != self_id)
+    duplicates = query.all()
+    if any(item.label == label for item in duplicates):
+        raise fail(status.HTTP_400_BAD_REQUEST, "同一上级下字典标签已存在")
+    if any(item.value == value for item in duplicates):
+        raise fail(status.HTTP_400_BAD_REQUEST, "同一上级下字典键值已存在")
 
 
 def system_message_item(message: AdminSystemMessage) -> dict[str, Any]:
@@ -979,26 +1050,32 @@ def delete_admin_region(
     "/dictionaries",
     response_model=AdminResponse,
     summary="字典列表",
-    description="系统配置 - 字典管理列表，支持按字典类型、标签和值筛选。",
+    description="系统配置 - 字典管理列表，支持按字典类型、标签和值筛选；默认返回带 children 的完整树。",
 )
 def list_admin_dictionaries(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
     type: Annotated[str | None, Query(description="字典类型，精确匹配")] = None,
     keyword: Annotated[str | None, Query(description="字典标签或值关键词")] = None,
+    parentId: Annotated[str | None, Query(description="上级字典 ID；传入后只查询该字典的直接下级")] = None,
+    tree: Annotated[bool, Query(description="是否按父子层级返回 children")] = True,
     status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled 启用，disabled 禁用")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
-    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+    limit: Annotated[int, Query(ge=1, le=1000, description="每页数量")] = 1000,
 ) -> dict[str, Any]:
     query = db.query(AdminDictionary)
     if type:
         query = query.filter(AdminDictionary.type == type)
     if keyword:
         query = query.filter((AdminDictionary.label.ilike(f"%{keyword}%")) | (AdminDictionary.value.ilike(f"%{keyword}%")))
+    if parentId is not None:
+        query = query.filter(AdminDictionary.parent_id == parentId)
     if status_filter:
         query = query.filter(AdminDictionary.status == status_filter)
     total = query.count()
     dictionaries = query.order_by(AdminDictionary.type.asc(), AdminDictionary.sort.asc(), AdminDictionary.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    if tree and parentId is None:
+        return ok({"list": dictionary_tree_items(dictionaries), "total": total})
     return ok({"list": [dictionary_item(dictionary) for dictionary in dictionaries], "total": total})
 
 
@@ -1013,8 +1090,11 @@ def create_admin_dictionary(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    validate_dictionary_parent(db, payload.parentId, payload.type)
+    validate_dictionary_unique(db, payload.type, payload.parentId, payload.label, payload.value)
     dictionary = AdminDictionary(
         dict_id=new_business_id("dict"),
+        parent_id=payload.parentId,
         type=payload.type,
         label=payload.label,
         value=payload.value,
@@ -1039,10 +1119,29 @@ def get_admin_dictionary(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
-    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
-    if dictionary is None:
-        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    dictionary = get_dictionary_or_404(db, dictId)
     return ok(dictionary_item(dictionary))
+
+
+@router.get(
+    "/dictionaries/{dictId}/children",
+    response_model=AdminResponse,
+    summary="字典下级列表",
+    description="系统配置 - 点击加下级时传入当前字典 ID，查询该字典详情和直接下级字典项。",
+)
+def list_admin_dictionary_children(
+    dictId: Annotated[str, Path(description="业务字典 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    parent = get_dictionary_or_404(db, dictId)
+    children = (
+        db.query(AdminDictionary)
+        .filter(AdminDictionary.parent_id == dictId)
+        .order_by(AdminDictionary.sort.asc(), AdminDictionary.create_time.desc())
+        .all()
+    )
+    return ok({"parent": dictionary_item(parent), "list": [dictionary_item(child) for child in children], "total": len(children)})
 
 
 @router.put(
@@ -1057,9 +1156,10 @@ def update_admin_dictionary(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
-    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
-    if dictionary is None:
-        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    dictionary = get_dictionary_or_404(db, dictId)
+    validate_dictionary_parent(db, payload.parentId, payload.type, self_id=dictId)
+    validate_dictionary_unique(db, payload.type, payload.parentId, payload.label, payload.value, self_id=dictId)
+    dictionary.parent_id = payload.parentId
     dictionary.type = payload.type
     dictionary.label = payload.label
     dictionary.value = payload.value
@@ -1083,9 +1183,9 @@ def delete_admin_dictionary(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
-    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
-    if dictionary is None:
-        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    dictionary = get_dictionary_or_404(db, dictId)
+    if db.query(AdminDictionary).filter(AdminDictionary.parent_id == dictId).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "存在下级字典，不能删除")
     db.delete(dictionary)
     db.commit()
     return ok(None, "字典删除成功")
