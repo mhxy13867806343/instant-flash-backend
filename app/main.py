@@ -9,6 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.address import router as address_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.messages import router as messages_router
@@ -24,6 +25,7 @@ openapi_tags = [
     {"name": "用户端内容", "description": "内容列表、详情、发布、编辑、点赞、评论、分享"},
     {"name": "用户端用户", "description": "当前登录用户资料和我的内容"},
     {"name": "用户端消息", "description": "当前登录用户消息中心"},
+    {"name": "公共地区", "description": "PC 后台和用户端共用的省市区三级地区数据"},
     {"name": "系统", "description": "健康检查等系统接口"},
 ]
 
@@ -42,6 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(address_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(posts_router)
@@ -364,6 +367,9 @@ def index() -> str:
         <div class="route"><strong>消息中心</strong><br><code>GET /api/messages</code><br>查看当前登录用户收到的点赞、评论、回复等消息。</div>
         <div class="route"><strong>后台看板</strong><br><code>GET /api/admin/dashboard/metrics</code><br>统计用户、内容、评论和点赞数据。</div>
         <div class="route"><strong>后台管理</strong><br><code>/api/admin/users</code>、<code>/api/admin/posts</code>、<code>/api/admin/comments</code>、<code>/api/admin/agreement/{agreementType}</code></div>
+        <div class="route"><strong>三级地区</strong><br><code>GET /api/address/tree</code><br>PC 后台和用户端共用，返回省市区三级树。</div>
+        <div class="route"><strong>系统配置</strong><br><code>/api/admin/tags</code>、<code>/api/admin/regions</code><br>标签管理和地区管理。</div>
+        <div class="route"><strong>字典与消息</strong><br><code>/api/admin/dictionaries</code>、<code>/api/admin/system-messages</code><br>字典管理和系统消息管理。</div>
       </div>
     </section>
 

@@ -9,12 +9,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.utils import new_business_id
 from app.core.security import create_access_token, decode_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.post import Post
+from app.models.system_config import AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -38,6 +40,41 @@ class AdminUserStatusUpdate(BaseModel):
 
 class AgreementUpdate(BaseModel):
     content: str = Field(title="协议内容", description="HTML 格式的协议正文")
+
+
+class AdminTagPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=64, title="标签名称", description="标签管理中的标签名称")
+    color: str | None = Field(default=None, max_length=32, title="标签颜色", description="标签颜色，例如 #1677ff")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    remark: str | None = Field(default=None, title="备注", description="标签备注")
+
+
+class AdminRegionPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=64, title="地区名称", description="省市区名称")
+    code: str = Field(min_length=1, max_length=32, title="地区编码", description="行政区划编码或前端自定义编码")
+    parentId: str | None = Field(default=None, max_length=64, title="上级地区 ID", description="上级业务地区 ID，顶级地区可为空")
+    level: int = Field(default=1, ge=1, le=4, title="层级", description="1 省级，2 市级，3 区县，4 街道")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+
+
+class AdminDictionaryPayload(BaseModel):
+    type: str = Field(min_length=1, max_length=64, title="字典类型", description="字典分组编码，例如 post_status")
+    label: str = Field(min_length=1, max_length=128, title="字典标签", description="展示给用户看的中文名称")
+    value: str = Field(min_length=1, max_length=128, title="字典值", description="前后端传递使用的值")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    remark: str | None = Field(default=None, title="备注", description="字典项备注")
+
+
+class AdminSystemMessagePayload(BaseModel):
+    title: str = Field(min_length=1, max_length=128, title="消息标题", description="系统消息标题")
+    content: str = Field(min_length=1, title="消息内容", description="系统消息正文")
+    type: str = Field(default="notice", max_length=32, title="消息类型", description="notice 通知，warning 警告，activity 活动")
+    target: str = Field(default="all", max_length=32, title="发送范围", description="all 全部用户，admin 后台，user 用户端")
+    status: str = Field(default="draft", pattern="^(draft|published|disabled)$", title="状态", description="draft 草稿，published 已发布，disabled 已停用")
+    isPinned: bool = Field(default=False, title="是否置顶", description="是否在系统消息列表置顶展示")
 
 
 class AdminResponse(BaseModel):
@@ -150,6 +187,61 @@ def comment_item(db: Session, comment: Comment) -> dict[str, Any]:
         "replyToUserId": comment.reply_to_user_id,
         "replyToNickname": reply_to.nickname if reply_to else None,
         "pubTime": format_time(comment.create_time),
+    }
+
+
+def tag_item(tag: AdminTag) -> dict[str, Any]:
+    return {
+        "tagId": tag.tag_id,
+        "name": tag.name,
+        "color": tag.color or "",
+        "sort": tag.sort,
+        "status": tag.status,
+        "remark": tag.remark or "",
+        "createdAt": format_time(tag.create_time),
+        "updatedAt": format_time(tag.update_time),
+    }
+
+
+def region_item(region: AdminRegion) -> dict[str, Any]:
+    return {
+        "regionId": region.region_id,
+        "parentId": region.parent_id,
+        "name": region.name,
+        "code": region.code,
+        "level": region.level,
+        "sort": region.sort,
+        "status": region.status,
+        "createdAt": format_time(region.create_time),
+        "updatedAt": format_time(region.update_time),
+    }
+
+
+def dictionary_item(dictionary: AdminDictionary) -> dict[str, Any]:
+    return {
+        "dictId": dictionary.dict_id,
+        "type": dictionary.type,
+        "label": dictionary.label,
+        "value": dictionary.value,
+        "sort": dictionary.sort,
+        "status": dictionary.status,
+        "remark": dictionary.remark or "",
+        "createdAt": format_time(dictionary.create_time),
+        "updatedAt": format_time(dictionary.update_time),
+    }
+
+
+def system_message_item(message: AdminSystemMessage) -> dict[str, Any]:
+    return {
+        "messageId": message.message_id,
+        "title": message.title,
+        "content": message.content,
+        "type": message.type,
+        "target": message.target,
+        "status": message.status,
+        "isPinned": message.is_pinned,
+        "createdAt": format_time(message.create_time),
+        "updatedAt": format_time(message.update_time),
     }
 
 
@@ -483,3 +575,477 @@ def update_admin_agreement(
     agreement.last_time = utc_now()
     db.commit()
     return ok(None, "协议更新成功")
+
+
+@router.get(
+    "/tags",
+    response_model=AdminResponse,
+    summary="标签列表",
+    description="系统配置 - 标签管理列表，支持按标签名称和状态筛选。",
+)
+def list_admin_tags(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="标签名称关键词")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled 启用，disabled 禁用")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(AdminTag)
+    if keyword:
+        query = query.filter(AdminTag.name.ilike(f"%{keyword}%"))
+    if status_filter:
+        query = query.filter(AdminTag.status == status_filter)
+    total = query.count()
+    tags = query.order_by(AdminTag.sort.asc(), AdminTag.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [tag_item(tag) for tag in tags], "total": total})
+
+
+@router.post(
+    "/tags",
+    response_model=AdminResponse,
+    summary="新增标签",
+    description="系统配置 - 新增标签。",
+)
+def create_admin_tag(
+    payload: AdminTagPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    if db.query(AdminTag).filter(AdminTag.name == payload.name).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "标签名称已存在")
+    tag = AdminTag(
+        tag_id=new_business_id("tag"),
+        name=payload.name,
+        color=payload.color,
+        sort=payload.sort,
+        status=payload.status,
+        remark=payload.remark,
+    )
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return ok(tag_item(tag), "标签创建成功")
+
+
+@router.get(
+    "/tags/{tagId}",
+    response_model=AdminResponse,
+    summary="标签详情",
+    description="系统配置 - 查看标签详情。",
+)
+def get_admin_tag(
+    tagId: Annotated[str, Path(description="业务标签 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    tag = db.query(AdminTag).filter(AdminTag.tag_id == tagId).one_or_none()
+    if tag is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "标签未找到")
+    return ok(tag_item(tag))
+
+
+@router.put(
+    "/tags/{tagId}",
+    response_model=AdminResponse,
+    summary="修改标签",
+    description="系统配置 - 修改标签信息。",
+)
+def update_admin_tag(
+    tagId: Annotated[str, Path(description="业务标签 ID")],
+    payload: AdminTagPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    tag = db.query(AdminTag).filter(AdminTag.tag_id == tagId).one_or_none()
+    if tag is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "标签未找到")
+    duplicate = db.query(AdminTag).filter(AdminTag.name == payload.name, AdminTag.tag_id != tagId).one_or_none()
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "标签名称已存在")
+    tag.name = payload.name
+    tag.color = payload.color
+    tag.sort = payload.sort
+    tag.status = payload.status
+    tag.remark = payload.remark
+    tag.last_time = utc_now()
+    db.commit()
+    db.refresh(tag)
+    return ok(tag_item(tag), "标签更新成功")
+
+
+@router.delete(
+    "/tags/{tagId}",
+    response_model=AdminResponse,
+    summary="删除标签",
+    description="系统配置 - 删除标签。",
+)
+def delete_admin_tag(
+    tagId: Annotated[str, Path(description="业务标签 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    tag = db.query(AdminTag).filter(AdminTag.tag_id == tagId).one_or_none()
+    if tag is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "标签未找到")
+    db.delete(tag)
+    db.commit()
+    return ok(None, "标签删除成功")
+
+
+@router.get(
+    "/regions",
+    response_model=AdminResponse,
+    summary="地区列表",
+    description="系统配置 - 地区管理列表，支持按名称、编码、上级地区和状态筛选。",
+)
+def list_admin_regions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="地区名称或编码关键词")] = None,
+    parentId: Annotated[str | None, Query(description="上级地区 ID")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled 启用，disabled 禁用")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=200, description="每页数量")] = 50,
+) -> dict[str, Any]:
+    query = db.query(AdminRegion)
+    if keyword:
+        query = query.filter((AdminRegion.name.ilike(f"%{keyword}%")) | (AdminRegion.code.ilike(f"%{keyword}%")))
+    if parentId:
+        query = query.filter(AdminRegion.parent_id == parentId)
+    if status_filter:
+        query = query.filter(AdminRegion.status == status_filter)
+    total = query.count()
+    regions = query.order_by(AdminRegion.level.asc(), AdminRegion.sort.asc(), AdminRegion.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [region_item(region) for region in regions], "total": total})
+
+
+@router.post(
+    "/regions",
+    response_model=AdminResponse,
+    summary="新增地区",
+    description="系统配置 - 新增地区。",
+)
+def create_admin_region(
+    payload: AdminRegionPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    if db.query(AdminRegion).filter(AdminRegion.code == payload.code).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "地区编码已存在")
+    region = AdminRegion(
+        region_id=new_business_id("reg"),
+        parent_id=payload.parentId,
+        name=payload.name,
+        code=payload.code,
+        level=payload.level,
+        sort=payload.sort,
+        status=payload.status,
+    )
+    db.add(region)
+    db.commit()
+    db.refresh(region)
+    return ok(region_item(region), "地区创建成功")
+
+
+@router.get(
+    "/regions/{regionId}",
+    response_model=AdminResponse,
+    summary="地区详情",
+    description="系统配置 - 查看地区详情。",
+)
+def get_admin_region(
+    regionId: Annotated[str, Path(description="业务地区 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    region = db.query(AdminRegion).filter(AdminRegion.region_id == regionId).one_or_none()
+    if region is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "地区未找到")
+    return ok(region_item(region))
+
+
+@router.put(
+    "/regions/{regionId}",
+    response_model=AdminResponse,
+    summary="修改地区",
+    description="系统配置 - 修改地区信息。",
+)
+def update_admin_region(
+    regionId: Annotated[str, Path(description="业务地区 ID")],
+    payload: AdminRegionPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    region = db.query(AdminRegion).filter(AdminRegion.region_id == regionId).one_or_none()
+    if region is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "地区未找到")
+    duplicate = db.query(AdminRegion).filter(AdminRegion.code == payload.code, AdminRegion.region_id != regionId).one_or_none()
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "地区编码已存在")
+    region.parent_id = payload.parentId
+    region.name = payload.name
+    region.code = payload.code
+    region.level = payload.level
+    region.sort = payload.sort
+    region.status = payload.status
+    region.last_time = utc_now()
+    db.commit()
+    db.refresh(region)
+    return ok(region_item(region), "地区更新成功")
+
+
+@router.delete(
+    "/regions/{regionId}",
+    response_model=AdminResponse,
+    summary="删除地区",
+    description="系统配置 - 删除地区；存在下级地区时不允许删除。",
+)
+def delete_admin_region(
+    regionId: Annotated[str, Path(description="业务地区 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    region = db.query(AdminRegion).filter(AdminRegion.region_id == regionId).one_or_none()
+    if region is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "地区未找到")
+    if db.query(AdminRegion).filter(AdminRegion.parent_id == regionId).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "存在下级地区，不能删除")
+    db.delete(region)
+    db.commit()
+    return ok(None, "地区删除成功")
+
+
+@router.get(
+    "/dictionaries",
+    response_model=AdminResponse,
+    summary="字典列表",
+    description="系统配置 - 字典管理列表，支持按字典类型、标签和值筛选。",
+)
+def list_admin_dictionaries(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    type: Annotated[str | None, Query(description="字典类型，精确匹配")] = None,
+    keyword: Annotated[str | None, Query(description="字典标签或值关键词")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled 启用，disabled 禁用")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(AdminDictionary)
+    if type:
+        query = query.filter(AdminDictionary.type == type)
+    if keyword:
+        query = query.filter((AdminDictionary.label.ilike(f"%{keyword}%")) | (AdminDictionary.value.ilike(f"%{keyword}%")))
+    if status_filter:
+        query = query.filter(AdminDictionary.status == status_filter)
+    total = query.count()
+    dictionaries = query.order_by(AdminDictionary.type.asc(), AdminDictionary.sort.asc(), AdminDictionary.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [dictionary_item(dictionary) for dictionary in dictionaries], "total": total})
+
+
+@router.post(
+    "/dictionaries",
+    response_model=AdminResponse,
+    summary="新增字典",
+    description="系统配置 - 新增字典项。",
+)
+def create_admin_dictionary(
+    payload: AdminDictionaryPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    dictionary = AdminDictionary(
+        dict_id=new_business_id("dict"),
+        type=payload.type,
+        label=payload.label,
+        value=payload.value,
+        sort=payload.sort,
+        status=payload.status,
+        remark=payload.remark,
+    )
+    db.add(dictionary)
+    db.commit()
+    db.refresh(dictionary)
+    return ok(dictionary_item(dictionary), "字典创建成功")
+
+
+@router.get(
+    "/dictionaries/{dictId}",
+    response_model=AdminResponse,
+    summary="字典详情",
+    description="系统配置 - 查看字典项详情。",
+)
+def get_admin_dictionary(
+    dictId: Annotated[str, Path(description="业务字典 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
+    if dictionary is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    return ok(dictionary_item(dictionary))
+
+
+@router.put(
+    "/dictionaries/{dictId}",
+    response_model=AdminResponse,
+    summary="修改字典",
+    description="系统配置 - 修改字典项。",
+)
+def update_admin_dictionary(
+    dictId: Annotated[str, Path(description="业务字典 ID")],
+    payload: AdminDictionaryPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
+    if dictionary is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    dictionary.type = payload.type
+    dictionary.label = payload.label
+    dictionary.value = payload.value
+    dictionary.sort = payload.sort
+    dictionary.status = payload.status
+    dictionary.remark = payload.remark
+    dictionary.last_time = utc_now()
+    db.commit()
+    db.refresh(dictionary)
+    return ok(dictionary_item(dictionary), "字典更新成功")
+
+
+@router.delete(
+    "/dictionaries/{dictId}",
+    response_model=AdminResponse,
+    summary="删除字典",
+    description="系统配置 - 删除字典项。",
+)
+def delete_admin_dictionary(
+    dictId: Annotated[str, Path(description="业务字典 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    dictionary = db.query(AdminDictionary).filter(AdminDictionary.dict_id == dictId).one_or_none()
+    if dictionary is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "字典未找到")
+    db.delete(dictionary)
+    db.commit()
+    return ok(None, "字典删除成功")
+
+
+@router.get(
+    "/system-messages",
+    response_model=AdminResponse,
+    summary="系统消息列表",
+    description="系统配置 - 系统消息列表，支持按标题、类型、发送范围和状态筛选。",
+)
+def list_admin_system_messages(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="消息标题或内容关键词")] = None,
+    type: Annotated[str | None, Query(description="消息类型")] = None,
+    target: Annotated[str | None, Query(description="发送范围：all/admin/user")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：draft/published/disabled")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(AdminSystemMessage)
+    if keyword:
+        query = query.filter((AdminSystemMessage.title.ilike(f"%{keyword}%")) | (AdminSystemMessage.content.ilike(f"%{keyword}%")))
+    if type:
+        query = query.filter(AdminSystemMessage.type == type)
+    if target:
+        query = query.filter(AdminSystemMessage.target == target)
+    if status_filter:
+        query = query.filter(AdminSystemMessage.status == status_filter)
+    total = query.count()
+    messages = query.order_by(AdminSystemMessage.is_pinned.desc(), AdminSystemMessage.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [system_message_item(message) for message in messages], "total": total})
+
+
+@router.post(
+    "/system-messages",
+    response_model=AdminResponse,
+    summary="新增系统消息",
+    description="系统配置 - 新增系统消息。",
+)
+def create_admin_system_message(
+    payload: AdminSystemMessagePayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = AdminSystemMessage(
+        message_id=new_business_id("msg"),
+        title=payload.title,
+        content=payload.content,
+        type=payload.type,
+        target=payload.target,
+        status=payload.status,
+        is_pinned=payload.isPinned,
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return ok(system_message_item(message), "系统消息创建成功")
+
+
+@router.get(
+    "/system-messages/{messageId}",
+    response_model=AdminResponse,
+    summary="系统消息详情",
+    description="系统配置 - 查看系统消息详情。",
+)
+def get_admin_system_message(
+    messageId: Annotated[str, Path(description="业务系统消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    return ok(system_message_item(message))
+
+
+@router.put(
+    "/system-messages/{messageId}",
+    response_model=AdminResponse,
+    summary="修改系统消息",
+    description="系统配置 - 修改系统消息。",
+)
+def update_admin_system_message(
+    messageId: Annotated[str, Path(description="业务系统消息 ID")],
+    payload: AdminSystemMessagePayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    message.title = payload.title
+    message.content = payload.content
+    message.type = payload.type
+    message.target = payload.target
+    message.status = payload.status
+    message.is_pinned = payload.isPinned
+    message.last_time = utc_now()
+    db.commit()
+    db.refresh(message)
+    return ok(system_message_item(message), "系统消息更新成功")
+
+
+@router.delete(
+    "/system-messages/{messageId}",
+    response_model=AdminResponse,
+    summary="删除系统消息",
+    description="系统配置 - 删除系统消息。",
+)
+def delete_admin_system_message(
+    messageId: Annotated[str, Path(description="业务系统消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    message = db.query(AdminSystemMessage).filter(AdminSystemMessage.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "系统消息未找到")
+    db.delete(message)
+    db.commit()
+    return ok(None, "系统消息删除成功")

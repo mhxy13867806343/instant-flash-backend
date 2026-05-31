@@ -24,6 +24,21 @@ def test_index_page() -> None:
     assert "Authorization: Bearer" in response.text
 
 
+def test_address_tree() -> None:
+    client = TestClient(app)
+
+    response = client.get("/api/address/tree")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 200
+    assert body["message"] == "success"
+    assert body["data"][0]["code"] == "110000"
+    assert body["data"][0]["value"] == "110000"
+    assert body["data"][0]["label"] == "北京市"
+    assert body["data"][0]["children"][0]["children"][0]["label"] == "东城区"
+
+
 def test_content_flow() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -172,6 +187,77 @@ def test_auth_errors_are_unified() -> None:
     invalid_token = client.get("/api/user/profile", headers={"Authorization": "Bearer wrong"})
     assert invalid_token.status_code == 401
     assert invalid_token.json() == {"code": 401, "message": "登录已过期或无效", "data": {}}
+
+
+def test_admin_system_config_flow() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    headers = {"Authorization": f"Bearer {login.json()['data']['token']}"}
+
+    tag = client.post(
+        "/api/admin/tags",
+        json={"name": "推荐", "color": "#1677ff", "sort": 1, "status": "enabled", "remark": "首页推荐"},
+        headers=headers,
+    )
+    assert tag.status_code == 200
+    tag_id = tag.json()["data"]["tagId"]
+    assert "tag_id" not in tag.json()["data"]
+    assert client.get("/api/admin/tags", headers=headers).json()["data"]["total"] == 1
+    tag_update = client.put(
+        f"/api/admin/tags/{tag_id}",
+        json={"name": "热门", "color": "#ff4d4f", "sort": 2, "status": "enabled", "remark": "热门内容"},
+        headers=headers,
+    )
+    assert tag_update.status_code == 200
+    assert tag_update.json()["data"]["name"] == "热门"
+
+    region = client.post(
+        "/api/admin/regions",
+        json={"name": "广东省", "code": "440000", "level": 1, "sort": 1, "status": "enabled"},
+        headers=headers,
+    )
+    assert region.status_code == 200
+    region_id = region.json()["data"]["regionId"]
+    assert client.get(f"/api/admin/regions/{region_id}", headers=headers).json()["data"]["code"] == "440000"
+
+    dictionary = client.post(
+        "/api/admin/dictionaries",
+        json={"type": "post_status", "label": "已上架", "value": "online", "sort": 1, "status": "enabled"},
+        headers=headers,
+    )
+    assert dictionary.status_code == 200
+    dict_id = dictionary.json()["data"]["dictId"]
+    dict_list = client.get("/api/admin/dictionaries", params={"type": "post_status"}, headers=headers)
+    assert dict_list.status_code == 200
+    assert dict_list.json()["data"]["list"][0]["dictId"] == dict_id
+
+    system_message = client.post(
+        "/api/admin/system-messages",
+        json={
+            "title": "系统维护",
+            "content": "今晚 23:00 维护",
+            "type": "notice",
+            "target": "all",
+            "status": "published",
+            "isPinned": True,
+        },
+        headers=headers,
+    )
+    assert system_message.status_code == 200
+    message_id = system_message.json()["data"]["messageId"]
+    assert system_message.json()["data"]["isPinned"] is True
+    assert "message_id" not in system_message.json()["data"]
+    message_list = client.get("/api/admin/system-messages", params={"status": "published"}, headers=headers)
+    assert message_list.status_code == 200
+    assert message_list.json()["data"]["list"][0]["messageId"] == message_id
+
+    assert client.delete(f"/api/admin/tags/{tag_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/regions/{region_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/dictionaries/{dict_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/system-messages/{message_id}", headers=headers).status_code == 200
 
 
 def test_dev_token_unique_identity_conflict_returns_message() -> None:
