@@ -107,13 +107,15 @@ def test_admin_flow() -> None:
         headers=admin_headers,
     )
     assert banned.status_code == 200
-    assert client.get("/api/user/profile", headers=user_headers).status_code == 401
+    expired_profile = client.get("/api/user/profile", headers=user_headers)
+    assert expired_profile.status_code == 401
+    assert expired_profile.json() == {"code": 401, "message": "登录已过期或无效", "data": {}}
 
     offline = client.put(f"/api/admin/posts/{post_id}/offline", headers=admin_headers)
     assert offline.status_code == 200
     missing = client.get(f"/api/posts/{post_id}")
     assert missing.status_code == 404
-    assert missing.json() == {"code": 404, "message": "Post not found", "data": {}}
+    assert missing.json() == {"code": 404, "message": "内容未找到", "data": {}}
 
     admin_post = client.get(f"/api/admin/posts/{post_id}", headers=admin_headers)
     assert admin_post.status_code == 200
@@ -138,6 +140,26 @@ def test_admin_flow() -> None:
     filtered = client.get("/api/admin/posts", params={"userId": "usr_admin_target"}, headers=admin_headers)
     assert filtered.status_code == 200
     assert filtered.json()["data"]["list"][0]["userId"] == "usr_admin_target"
+
+
+def test_auth_errors_are_unified() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    user_missing = client.get("/api/user/profile")
+    assert user_missing.status_code == 401
+    assert user_missing.json() == {"code": 401, "message": "未登录，请先登录", "data": {}}
+    assert "detail" not in user_missing.json()
+
+    admin_missing = client.get("/api/admin/users")
+    assert admin_missing.status_code == 401
+    assert admin_missing.json() == {"code": 401, "message": "未登录，请先登录", "data": {}}
+    assert "detail" not in admin_missing.json()
+
+    invalid_token = client.get("/api/user/profile", headers={"Authorization": "Bearer wrong"})
+    assert invalid_token.status_code == 401
+    assert invalid_token.json() == {"code": 401, "message": "登录已过期或无效", "data": {}}
 
 
 def test_wx_login() -> None:

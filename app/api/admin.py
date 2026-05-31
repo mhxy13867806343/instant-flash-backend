@@ -18,7 +18,7 @@ from app.models.post import Post
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
-admin_bearer = HTTPBearer(auto_error=True)
+admin_bearer = HTTPBearer(auto_error=False)
 
 
 DEFAULT_AGREEMENTS = {
@@ -53,7 +53,7 @@ def ok(data: Any = None, message: str = "success") -> dict[str, Any]:
 def fail(status_code: int, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code,
-        detail={"code": status_code, "message": message, "data": None},
+        detail={"code": status_code, "message": message, "data": {}},
     )
 
 
@@ -64,8 +64,10 @@ def format_time(value: datetime | None) -> str:
 
 
 def get_admin_subject(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(admin_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(admin_bearer)],
 ) -> str:
+    if credentials is None:
+        raise fail(status.HTTP_401_UNAUTHORIZED, "未登录，请先登录")
     if credentials.scheme.lower() != "bearer":
         raise fail(status.HTTP_401_UNAUTHORIZED, "登录失效，请重新登录")
     subject = decode_access_token(credentials.credentials)

@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -83,14 +84,22 @@ def custom_openapi() -> dict:
 app.openapi = custom_openapi
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+ERROR_MESSAGE_MAP = {
+    "Not authenticated": "未登录，请先登录",
+    "Invalid or expired token": "登录已过期或无效",
+    "Post not found": "内容未找到",
+    "Only author can edit": "仅发布者可以编辑",
+    "Only author can delete": "仅发布者可以删除",
+}
+
+
+def error_response(exc: StarletteHTTPException) -> JSONResponse:
     if isinstance(exc.detail, dict):
         message = str(exc.detail.get("message") or exc.detail.get("detail") or "请求失败")
         data = exc.detail.get("data", {})
         code = int(exc.detail.get("code") or exc.status_code)
     else:
-        message = str(exc.detail or "请求失败")
+        message = ERROR_MESSAGE_MAP.get(str(exc.detail), str(exc.detail or "请求失败"))
         data = {}
         code = exc.status_code
     return JSONResponse(
@@ -98,6 +107,16 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
         content={"code": code, "message": message, "data": data},
         headers=getattr(exc, "headers", None),
     )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    return error_response(exc)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    return error_response(exc)
 
 
 @app.exception_handler(RequestValidationError)
