@@ -1,10 +1,19 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class DevTokenRequest(BaseModel):
-    user_id: str | None = Field(default=None, max_length=64, title="业务用户 ID", description="开发调试指定的用户 ID，不传则自动生成")
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str | None = Field(
+        default=None,
+        alias="userId",
+        validation_alias=AliasChoices("userId", "user_id"),
+        max_length=64,
+        title="业务用户 ID",
+        description="开发调试指定的用户 ID，不传则自动生成",
+    )
     openid: str | None = Field(default=None, max_length=128, title="微信 OpenID", description="开发调试用 OpenID")
     unionid: str | None = Field(default=None, max_length=128, title="微信 UnionID", description="开发调试用 UnionID")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="用户手机号")

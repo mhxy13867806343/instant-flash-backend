@@ -94,7 +94,7 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         or 0
     )
     return {
-        "user_id": user.user_id,
+        "userId": user.user_id,
         "nickname": user.nickname or "即闪用户",
         "avatar": user.avatar or "",
         "phone": user.phone or "",
@@ -116,8 +116,8 @@ def post_status(post: Post) -> str:
 def post_item(post: Post) -> dict[str, Any]:
     author = post.author
     return {
-        "post_id": post.post_id,
-        "user_id": post.user_id,
+        "postId": post.post_id,
+        "userId": post.user_id,
         "nickname": author.nickname if author and author.nickname else "即闪用户",
         "avatar": author.avatar if author and author.avatar else "",
         "content": post.content,
@@ -138,15 +138,15 @@ def comment_item(db: Session, comment: Comment) -> dict[str, Any]:
         else None
     )
     return {
-        "comment_id": comment.comment_id,
-        "post_id": comment.post_id,
-        "user_id": comment.user_id,
+        "commentId": comment.comment_id,
+        "postId": comment.post_id,
+        "userId": comment.user_id,
         "nickname": user.nickname if user and user.nickname else "即闪用户",
         "avatar": user.avatar if user and user.avatar else "",
         "content": comment.content,
-        "parent_id": comment.parent_id,
-        "reply_to_user_id": comment.reply_to_user_id,
-        "reply_to_nickname": reply_to.nickname if reply_to else None,
+        "parentId": comment.parent_id,
+        "replyToUserId": comment.reply_to_user_id,
+        "replyToNickname": reply_to.nickname if reply_to else None,
         "pubTime": format_time(comment.create_time),
     }
 
@@ -223,13 +223,15 @@ def dashboard_metrics(
 def list_admin_users(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
-    user_id: Annotated[str | None, Query(description="业务用户 ID，精确匹配")] = None,
+    userId: Annotated[str | None, Query(description="业务用户 ID，精确匹配")] = None,
+    user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
     nickname: Annotated[str | None, Query(description="用户昵称，模糊匹配")] = None,
     phone: Annotated[str | None, Query(description="手机号，模糊匹配")] = None,
     status_filter: Annotated[str | None, Query(alias="status", description="账号状态：normal 正常，banned 禁用")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
 ) -> dict[str, Any]:
+    user_id = userId or user_id_legacy
     query = db.query(User)
     if user_id:
         query = query.filter(User.user_id == user_id)
@@ -248,16 +250,17 @@ def list_admin_users(
 
 
 @router.get(
-    "/users/{user_id}",
+    "/users/{userId}",
     response_model=AdminResponse,
     summary="用户详情",
     description="后台查看单个业务用户详情。",
 )
 def get_admin_user(
-    user_id: Annotated[str, Path(description="业务用户 ID")],
+    userId: Annotated[str, Path(description="业务用户 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    user_id = userId
     user = db.query(User).filter(User.user_id == user_id).one_or_none()
     if user is None:
         raise fail(status.HTTP_404_NOT_FOUND, "用户未找到")
@@ -265,17 +268,18 @@ def get_admin_user(
 
 
 @router.put(
-    "/users/{user_id}",
+    "/users/{userId}",
     response_model=AdminResponse,
     summary="修改用户状态",
     description="后台禁用或解禁用户。禁用后该用户 token 将无法访问需要登录的用户端接口。",
 )
 def update_admin_user_status(
-    user_id: Annotated[str, Path(description="业务用户 ID")],
+    userId: Annotated[str, Path(description="业务用户 ID")],
     payload: AdminUserStatusUpdate,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    user_id = userId
     user = db.query(User).filter(User.user_id == user_id).one_or_none()
     if user is None:
         raise fail(status.HTTP_404_NOT_FOUND, "用户未找到")
@@ -295,12 +299,14 @@ def list_admin_posts(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
     nickname: Annotated[str | None, Query(description="发布人昵称，模糊匹配")] = None,
-    user_id: Annotated[str | None, Query(description="发布人业务用户 ID，精确匹配")] = None,
+    userId: Annotated[str | None, Query(description="发布人业务用户 ID，精确匹配")] = None,
+    user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
     status_filter: Annotated[str | None, Query(alias="status", description="内容状态：online 已上架，offline 已下架")] = None,
     content: Annotated[str | None, Query(description="内容正文关键词，模糊匹配")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 5,
 ) -> dict[str, Any]:
+    user_id = userId or user_id_legacy
     query = db.query(Post).options(joinedload(Post.author)).filter(Post.is_deleted.is_(False))
     if user_id:
         query = query.filter(Post.user_id == user_id)
@@ -319,16 +325,17 @@ def list_admin_posts(
 
 
 @router.get(
-    "/posts/{post_id}",
+    "/posts/{postId}",
     response_model=AdminResponse,
     summary="内容详情",
     description="后台查看单条内容详情；后台可查看已下架内容。",
 )
 def get_admin_post(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    post_id = postId
     post = (
         db.query(Post)
         .options(joinedload(Post.author))
@@ -341,16 +348,17 @@ def get_admin_post(
 
 
 @router.put(
-    "/posts/{post_id}/offline",
+    "/posts/{postId}/offline",
     response_model=AdminResponse,
     summary="内容下架",
     description="后台将内容置为 offline。下架后用户端公开列表和详情不可见。",
 )
 def offline_admin_post(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    post_id = postId
     post = db.query(Post).filter(Post.post_id == post_id, Post.is_deleted.is_(False)).one_or_none()
     if post is None:
         raise fail(status.HTTP_404_NOT_FOUND, "内容未找到")
@@ -361,16 +369,17 @@ def offline_admin_post(
 
 
 @router.put(
-    "/posts/{post_id}/restore",
+    "/posts/{postId}/restore",
     response_model=AdminResponse,
     summary="恢复上架",
     description="后台将已下架内容恢复为 online，恢复后用户端可见。",
 )
 def restore_admin_post(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    post_id = postId
     post = db.query(Post).filter(Post.post_id == post_id, Post.is_deleted.is_(False)).one_or_none()
     if post is None:
         raise fail(status.HTTP_404_NOT_FOUND, "内容未找到")
@@ -389,11 +398,15 @@ def restore_admin_post(
 def list_admin_comments(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
-    post_id: Annotated[str | None, Query(description="内容 ID，精确匹配")] = None,
-    user_id: Annotated[str | None, Query(description="评论人业务用户 ID，精确匹配")] = None,
+    postId: Annotated[str | None, Query(description="内容 ID，精确匹配")] = None,
+    userId: Annotated[str | None, Query(description="评论人业务用户 ID，精确匹配")] = None,
+    post_id_legacy: Annotated[str | None, Query(alias="post_id", description="兼容旧参数 post_id", include_in_schema=False)] = None,
+    user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
 ) -> dict[str, Any]:
+    post_id = postId or post_id_legacy
+    user_id = userId or user_id_legacy
     query = db.query(Comment).filter(Comment.is_deleted.is_(False))
     if post_id:
         query = query.filter(Comment.post_id == post_id)
@@ -405,16 +418,17 @@ def list_admin_comments(
 
 
 @router.delete(
-    "/comments/{comment_id}",
+    "/comments/{commentId}",
     response_model=AdminResponse,
     summary="删除评论",
     description="后台删除评论。当前为软删除，并同步扣减内容评论数。",
 )
 def delete_admin_comment(
-    comment_id: Annotated[str, Path(description="评论 ID")],
+    commentId: Annotated[str, Path(description="评论 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    comment_id = commentId
     comment = db.query(Comment).filter(Comment.comment_id == comment_id, Comment.is_deleted.is_(False)).one_or_none()
     if comment is None:
         raise fail(status.HTTP_404_NOT_FOUND, "评论未找到")
@@ -430,16 +444,17 @@ def delete_admin_comment(
 
 
 @router.get(
-    "/agreement/{agreement_type}",
+    "/agreement/{agreementType}",
     response_model=AdminResponse,
     summary="获取协议",
-    description="获取后台维护的协议内容。agreement_type 支持 privacy 或 user。",
+    description="获取后台维护的协议内容。agreementType 支持 privacy 或 user。",
 )
 def get_admin_agreement(
-    agreement_type: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
+    agreementType: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    agreement_type = agreementType
     if agreement_type not in DEFAULT_AGREEMENTS:
         raise fail(status.HTTP_404_NOT_FOUND, "协议未找到")
     agreement = get_or_create_agreement(db, agreement_type)
@@ -447,17 +462,18 @@ def get_admin_agreement(
 
 
 @router.put(
-    "/agreement/{agreement_type}",
+    "/agreement/{agreementType}",
     response_model=AdminResponse,
     summary="更新协议",
-    description="更新后台维护的协议内容。agreement_type 支持 privacy 或 user。",
+    description="更新后台维护的协议内容。agreementType 支持 privacy 或 user。",
 )
 def update_admin_agreement(
-    agreement_type: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
+    agreementType: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
     payload: AgreementUpdate,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
+    agreement_type = agreementType
     if agreement_type not in DEFAULT_AGREEMENTS:
         raise fail(status.HTTP_404_NOT_FOUND, "协议未找到")
     agreement = get_or_create_agreement(db, agreement_type)

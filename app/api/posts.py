@@ -96,17 +96,18 @@ def list_posts(
 
 
 @router.get(
-    "/{post_id}/comments",
+    "/{postId}/comments",
     response_model=list[CommentOut],
     summary="内容评论列表",
     description="获取某条内容下的评论和回复列表。",
 )
 def list_post_comments(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     page_size: Annotated[int, Query(alias="pageSize", ge=1, le=100, description="每页数量")] = 20,
 ) -> list[CommentOut]:
+    post_id = postId
     _get_visible_post(db, post_id)
     comments = (
         db.query(Comment)
@@ -124,7 +125,7 @@ def list_post_comments(
     response_model=PostOut,
     status_code=status.HTTP_201_CREATED,
     summary="发布内容",
-    description="登录用户发布新内容；发布者 user_id 从 token 中获取，前端不传 user_id。",
+    description="登录用户发布新内容；发布者 userId 从 token 中获取，前端不传 userId。",
 )
 def create_post(
     payload: PostCreate,
@@ -145,16 +146,17 @@ def create_post(
 
 
 @router.get(
-    "/{post_id}",
+    "/{postId}",
     response_model=PostOut,
     summary="内容详情",
     description="公开内容详情接口。带 token 时返回当前用户是否点赞、是否作者、是否可编辑等字段。",
 )
 def get_post_detail(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> PostOut:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     liked = bool(
         current_user
@@ -169,17 +171,18 @@ def get_post_detail(
 
 
 @router.put(
-    "/{post_id}",
+    "/{postId}",
     response_model=PostOut,
     summary="编辑内容",
     description="登录用户编辑自己发布的内容；后端校验当前用户是否为发布者。",
 )
 def update_post(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     payload: PostUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> PostOut:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     if post.user_id != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only author can edit")
@@ -203,16 +206,17 @@ def update_post(
 
 
 @router.delete(
-    "/{post_id}",
+    "/{postId}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="删除内容",
     description="登录用户删除自己发布的内容；后端做软删除。",
 )
 def delete_post(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> None:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     if post.user_id != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only author can delete")
@@ -225,16 +229,17 @@ def delete_post(
 
 
 @router.post(
-    "/{post_id}/like",
+    "/{postId}/like",
     response_model=LikeResponse,
     summary="点赞/取消点赞",
     description="登录用户点赞或取消点赞内容。重复调用会在点赞和取消点赞之间切换。",
 )
 def toggle_like(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> LikeResponse:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     like = (
         db.query(PostLike)
@@ -257,18 +262,19 @@ def toggle_like(
 
 
 @router.post(
-    "/{post_id}/comments",
+    "/{postId}/comments",
     response_model=CommentOut,
     status_code=status.HTTP_201_CREATED,
     summary="发表评论/回复",
     description="登录用户对内容发表评论，也可通过 parentId/replyToUserId 发表回复。",
 )
 def create_comment(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     payload: CommentCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> CommentOut:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     comment = Comment(
         comment_id=new_business_id("cmt"),
@@ -287,18 +293,19 @@ def create_comment(
 
 
 @router.post(
-    "/{post_id}/share",
+    "/{postId}/share",
     response_model=ShareOut,
     status_code=status.HTTP_201_CREATED,
     summary="分享内容",
     description="记录内容分享次数。游客可调用；登录用户会额外保存分享记录。",
 )
 def create_share(
-    post_id: Annotated[str, Path(description="内容 ID")],
+    postId: Annotated[str, Path(description="内容 ID")],
     payload: ShareCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> ShareOut:
+    post_id = postId
     post = _get_visible_post(db, post_id)
     post.share_count += 1
     post.last_time = utc_now()

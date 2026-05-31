@@ -19,7 +19,7 @@ def test_content_flow() -> None:
 
     token_response = client.post(
         "/api/auth/dev-token",
-        json={"user_id": "usr_test", "nickname": "Tester"},
+        json={"userId": "usr_test", "nickname": "Tester"},
     )
     assert token_response.status_code == 200
     token = token_response.json()["accessToken"]
@@ -77,7 +77,7 @@ def test_admin_flow() -> None:
 
     token_response = client.post(
         "/api/auth/dev-token",
-        json={"user_id": "usr_admin_target", "nickname": "Target", "phone": "13812345678"},
+        json={"userId": "usr_admin_target", "nickname": "Target", "phone": "13812345678"},
     )
     user_token = token_response.json()["accessToken"]
     user_headers = {"Authorization": f"Bearer {user_token}"}
@@ -98,6 +98,8 @@ def test_admin_flow() -> None:
     assert users.status_code == 200
     assert users.json()["data"]["total"] == 1
     assert users.json()["data"]["list"][0]["status"] == "normal"
+    assert users.json()["data"]["list"][0]["userId"] == "usr_admin_target"
+    assert "user_id" not in users.json()["data"]["list"][0]
 
     banned = client.put(
         "/api/admin/users/usr_admin_target",
@@ -109,11 +111,15 @@ def test_admin_flow() -> None:
 
     offline = client.put(f"/api/admin/posts/{post_id}/offline", headers=admin_headers)
     assert offline.status_code == 200
-    assert client.get(f"/api/posts/{post_id}").status_code == 404
+    missing = client.get(f"/api/posts/{post_id}")
+    assert missing.status_code == 404
+    assert missing.json() == {"code": 404, "message": "Post not found", "data": {}}
 
     admin_post = client.get(f"/api/admin/posts/{post_id}", headers=admin_headers)
     assert admin_post.status_code == 200
     assert admin_post.json()["data"]["status"] == "offline"
+    assert admin_post.json()["data"]["postId"] == post_id
+    assert "post_id" not in admin_post.json()["data"]
 
     deleted_comment = client.delete(
         f"/api/admin/comments/{comment_response.json()['commentId']}",
@@ -128,6 +134,10 @@ def test_admin_flow() -> None:
     )
     assert agreement.status_code == 200
     assert client.get("/api/admin/agreement/privacy", headers=admin_headers).json()["data"] == "<p>privacy</p>"
+
+    filtered = client.get("/api/admin/posts", params={"userId": "usr_admin_target"}, headers=admin_headers)
+    assert filtered.status_code == 200
+    assert filtered.json()["data"]["list"][0]["userId"] == "usr_admin_target"
 
 
 def test_wx_login() -> None:

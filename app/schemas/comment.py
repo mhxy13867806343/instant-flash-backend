@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class CommentCreate(BaseModel):
     content: str = Field(min_length=1, title="评论内容", description="评论或回复的文字内容")
-    parentId: str | None = Field(default=None, max_length=64, title="父评论 ID", description="回复评论时传父评论 comment_id")
+    parentId: str | None = Field(default=None, max_length=64, title="父评论 ID", description="回复评论时传父评论 commentId")
     replyToUserId: str | None = Field(default=None, max_length=64, title="被回复用户 ID", description="回复某个用户时的业务用户 ID")
 
 

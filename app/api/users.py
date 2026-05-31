@@ -36,7 +36,7 @@ def get_profile(current_user: Annotated[User, Depends(get_current_user_required)
     "/profile",
     response_model=UserProfile,
     summary="编辑我的资料",
-    description="更新当前登录用户资料。用户身份从 token 中获取，前端不传 user_id。",
+    description="更新当前登录用户资料。用户身份从 token 中获取，前端不传 userId。",
 )
 def update_profile(
     payload: UserProfileUpdate,

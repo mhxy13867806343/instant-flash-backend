@@ -18,7 +18,7 @@ class PostUpdate(BaseModel):
 
 
 class PostOut(BaseModel):
-    postId: str = Field(title="内容 ID", description="业务内容 ID，对应 posts.post_id")
+    postId: str = Field(title="内容 ID", description="业务内容 ID")
     userId: str = Field(title="发布者用户 ID", description="发布者业务用户 ID")
     nickname: str | None = Field(default=None, title="发布者昵称", description="发布者展示昵称")
     avatar: str | None = Field(default=None, title="发布者头像", description="发布者头像 URL")
