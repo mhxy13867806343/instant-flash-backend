@@ -4,33 +4,33 @@ from pydantic import BaseModel, Field
 
 
 class DevTokenRequest(BaseModel):
-    user_id: str | None = Field(default=None, max_length=64)
-    openid: str | None = Field(default=None, max_length=128)
-    unionid: str | None = Field(default=None, max_length=128)
-    phone: str | None = Field(default=None, max_length=32)
-    nickname: str | None = Field(default=None, max_length=64)
-    avatar: str | None = None
+    user_id: str | None = Field(default=None, max_length=64, title="业务用户 ID", description="开发调试指定的用户 ID，不传则自动生成")
+    openid: str | None = Field(default=None, max_length=128, title="微信 OpenID", description="开发调试用 OpenID")
+    unionid: str | None = Field(default=None, max_length=128, title="微信 UnionID", description="开发调试用 UnionID")
+    phone: str | None = Field(default=None, max_length=32, title="手机号", description="用户手机号")
+    nickname: str | None = Field(default=None, max_length=64, title="昵称", description="用户昵称")
+    avatar: str | None = Field(default=None, title="头像", description="用户头像 URL")
 
 
 class WxLoginRequest(BaseModel):
-    code: str = Field(min_length=1, max_length=256)
-    nickname: str | None = Field(default=None, max_length=64)
-    avatar: str | None = None
-    phone: str | None = Field(default=None, max_length=32)
-    gender: str | None = Field(default=None, max_length=16)
-    province: str | None = Field(default=None, max_length=64)
-    city: str | None = Field(default=None, max_length=64)
-    district: str | None = Field(default=None, max_length=64)
+    code: str = Field(min_length=1, max_length=256, title="微信登录 code", description="小程序 uni.login/wx.login 返回的临时 code")
+    nickname: str | None = Field(default=None, max_length=64, title="昵称", description="微信授权昵称")
+    avatar: str | None = Field(default=None, title="头像", description="微信头像 URL")
+    phone: str | None = Field(default=None, max_length=32, title="手机号", description="授权手机号")
+    gender: str | None = Field(default=None, max_length=16, title="性别", description="性别展示值")
+    province: str | None = Field(default=None, max_length=64, title="省份", description="省份")
+    city: str | None = Field(default=None, max_length=64, title="城市", description="城市")
+    district: str | None = Field(default=None, max_length=64, title="区县", description="区县")
 
 
 class TokenResponse(BaseModel):
-    accessToken: str
-    tokenType: str = "Bearer"
-    userId: str
+    accessToken: str = Field(title="访问令牌", description="Bearer Token")
+    tokenType: str = Field(default="Bearer", title="令牌类型", description="固定为 Bearer")
+    userId: str = Field(title="业务用户 ID", description="当前登录用户 ID")
 
 
 class WxLoginResponse(BaseModel):
-    accessToken: str
-    token: str
-    tokenType: str = "Bearer"
-    user: dict[str, object | None]
+    accessToken: str = Field(title="访问令牌", description="Bearer Token")
+    token: str = Field(title="兼容 Token", description="兼容前端读取的 token 字段，值同 accessToken")
+    tokenType: str = Field(default="Bearer", title="令牌类型", description="固定为 Bearer")
+    user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")

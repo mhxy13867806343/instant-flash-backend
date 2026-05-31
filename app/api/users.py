@@ -19,15 +19,25 @@ from app.schemas.post import PostListResponse, PostOut
 from app.schemas.share import ShareOut
 from app.schemas.user import UserProfile, UserProfileUpdate
 
-router = APIRouter(prefix="/api/user", tags=["user"])
+router = APIRouter(prefix="/api/user", tags=["用户端用户"])
 
 
-@router.get("/profile", response_model=UserProfile)
+@router.get(
+    "/profile",
+    response_model=UserProfile,
+    summary="我的资料",
+    description="获取当前登录用户资料。用户身份从 Authorization Bearer Token 中解析。",
+)
 def get_profile(current_user: Annotated[User, Depends(get_current_user_required)]) -> UserProfile:
     return user_profile(current_user)
 
 
-@router.put("/profile", response_model=UserProfile)
+@router.put(
+    "/profile",
+    response_model=UserProfile,
+    summary="编辑我的资料",
+    description="更新当前登录用户资料。用户身份从 token 中获取，前端不传 user_id。",
+)
 def update_profile(
     payload: UserProfileUpdate,
     db: Annotated[Session, Depends(get_db)],
@@ -41,14 +51,19 @@ def update_profile(
     return user_profile(current_user)
 
 
-@router.get("/posts", response_model=PostListResponse)
+@router.get(
+    "/posts",
+    response_model=PostListResponse,
+    summary="我的发布",
+    description="获取当前登录用户发布的内容列表。",
+)
 def my_posts(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    page: Annotated[int | None, Query(ge=1)] = None,
-    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100)] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量，兼容 limit/offset 分页")] = 20,
+    offset: Annotated[int, Query(ge=0, description="偏移量，兼容 limit/offset 分页")] = 0,
+    page: Annotated[int | None, Query(ge=1, description="页码，兼容 page/pageSize 分页")] = None,
+    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量，兼容 page/pageSize 分页")] = None,
 ) -> PostListResponse:
     if page is not None:
         limit = page_size or limit
@@ -81,7 +96,12 @@ def my_posts(
     )
 
 
-@router.get("/likes", response_model=list[PostOut])
+@router.get(
+    "/likes",
+    response_model=list[PostOut],
+    summary="我的点赞",
+    description="获取当前登录用户点赞过的内容列表。",
+)
 def my_likes(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -97,7 +117,12 @@ def my_likes(
     return [post_out(post, current_user, is_liked=True) for post in posts]
 
 
-@router.get("/comments", response_model=list[CommentOut])
+@router.get(
+    "/comments",
+    response_model=list[CommentOut],
+    summary="我的评论",
+    description="获取当前登录用户发表过的评论列表。",
+)
 def my_comments(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -111,7 +136,12 @@ def my_comments(
     return [comment_out(comment) for comment in comments]
 
 
-@router.get("/shares", response_model=list[ShareOut])
+@router.get(
+    "/shares",
+    response_model=list[ShareOut],
+    summary="我的分享",
+    description="获取当前登录用户分享过的内容记录。",
+)
 def my_shares(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],

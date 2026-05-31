@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -17,7 +17,7 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.user import User
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["后台管理"])
 admin_bearer = HTTPBearer(auto_error=True)
 
 
@@ -28,16 +28,22 @@ DEFAULT_AGREEMENTS = {
 
 
 class AdminLoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=1, max_length=128)
+    username: str = Field(min_length=1, max_length=64, title="管理员账号", description="后台管理员登录账号")
+    password: str = Field(min_length=1, max_length=128, title="管理员密码", description="后台管理员登录密码")
 
 
 class AdminUserStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(normal|banned)$")
+    status: str = Field(pattern="^(normal|banned)$", title="用户状态", description="normal 表示正常，banned 表示禁用")
 
 
 class AgreementUpdate(BaseModel):
-    content: str
+    content: str = Field(title="协议内容", description="HTML 格式的协议正文")
+
+
+class AdminResponse(BaseModel):
+    code: int = Field(title="业务状态码", description="200 表示成功，其他值表示业务失败")
+    message: str = Field(title="提示信息", description="接口处理结果说明")
+    data: Any = Field(default=None, title="响应数据", description="接口返回的业务数据")
 
 
 def ok(data: Any = None, message: str = "success") -> dict[str, Any]:
@@ -159,7 +165,12 @@ def get_or_create_agreement(db: Session, agreement_type: str) -> AdminAgreement:
     return agreement
 
 
-@router.post("/auth/login")
+@router.post(
+    "/auth/login",
+    response_model=AdminResponse,
+    summary="后台登录",
+    description="后台管理系统登录接口。演示账号 admin，密码 123456。",
+)
 def admin_login(payload: AdminLoginRequest) -> dict[str, Any]:
     if payload.username == "admin" and payload.password == "123456":
         token = create_access_token(f"admin:{payload.username}")
@@ -167,7 +178,12 @@ def admin_login(payload: AdminLoginRequest) -> dict[str, Any]:
     raise fail(status.HTTP_400_BAD_REQUEST, "用户名或密码错误")
 
 
-@router.get("/dashboard/metrics")
+@router.get(
+    "/dashboard/metrics",
+    response_model=AdminResponse,
+    summary="看板指标",
+    description="获取后台首页数据看板指标，包括用户、内容、评论和点赞统计。",
+)
 def dashboard_metrics(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
@@ -198,16 +214,21 @@ def dashboard_metrics(
     )
 
 
-@router.get("/users")
+@router.get(
+    "/users",
+    response_model=AdminResponse,
+    summary="用户列表",
+    description="后台用户管理列表，支持按用户 ID、昵称、手机号、账号状态筛选。",
+)
 def list_admin_users(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
-    user_id: str | None = None,
-    nickname: str | None = None,
-    phone: str | None = None,
-    status_filter: Annotated[str | None, Query(alias="status")] = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    user_id: Annotated[str | None, Query(description="业务用户 ID，精确匹配")] = None,
+    nickname: Annotated[str | None, Query(description="用户昵称，模糊匹配")] = None,
+    phone: Annotated[str | None, Query(description="手机号，模糊匹配")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="账号状态：normal 正常，banned 禁用")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
 ) -> dict[str, Any]:
     query = db.query(User)
     if user_id:
@@ -226,9 +247,14 @@ def list_admin_users(
     return ok({"list": [user_item(db, user) for user in users], "total": total})
 
 
-@router.get("/users/{user_id}")
+@router.get(
+    "/users/{user_id}",
+    response_model=AdminResponse,
+    summary="用户详情",
+    description="后台查看单个业务用户详情。",
+)
 def get_admin_user(
-    user_id: str,
+    user_id: Annotated[str, Path(description="业务用户 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -238,9 +264,14 @@ def get_admin_user(
     return ok(user_item(db, user))
 
 
-@router.put("/users/{user_id}")
+@router.put(
+    "/users/{user_id}",
+    response_model=AdminResponse,
+    summary="修改用户状态",
+    description="后台禁用或解禁用户。禁用后该用户 token 将无法访问需要登录的用户端接口。",
+)
 def update_admin_user_status(
-    user_id: str,
+    user_id: Annotated[str, Path(description="业务用户 ID")],
     payload: AdminUserStatusUpdate,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
@@ -254,16 +285,21 @@ def update_admin_user_status(
     return ok(None, "操作成功")
 
 
-@router.get("/posts")
+@router.get(
+    "/posts",
+    response_model=AdminResponse,
+    summary="内容列表",
+    description="后台内容管理列表，支持按发布人、内容关键词和上架状态筛选。",
+)
 def list_admin_posts(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
-    nickname: str | None = None,
-    user_id: str | None = None,
-    status_filter: Annotated[str | None, Query(alias="status")] = None,
-    content: str | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 5,
+    nickname: Annotated[str | None, Query(description="发布人昵称，模糊匹配")] = None,
+    user_id: Annotated[str | None, Query(description="发布人业务用户 ID，精确匹配")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="内容状态：online 已上架，offline 已下架")] = None,
+    content: Annotated[str | None, Query(description="内容正文关键词，模糊匹配")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 5,
 ) -> dict[str, Any]:
     query = db.query(Post).options(joinedload(Post.author)).filter(Post.is_deleted.is_(False))
     if user_id:
@@ -282,9 +318,14 @@ def list_admin_posts(
     return ok({"list": [post_item(post) for post in posts], "total": total})
 
 
-@router.get("/posts/{post_id}")
+@router.get(
+    "/posts/{post_id}",
+    response_model=AdminResponse,
+    summary="内容详情",
+    description="后台查看单条内容详情；后台可查看已下架内容。",
+)
 def get_admin_post(
-    post_id: str,
+    post_id: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -299,9 +340,14 @@ def get_admin_post(
     return ok(post_item(post))
 
 
-@router.put("/posts/{post_id}/offline")
+@router.put(
+    "/posts/{post_id}/offline",
+    response_model=AdminResponse,
+    summary="内容下架",
+    description="后台将内容置为 offline。下架后用户端公开列表和详情不可见。",
+)
 def offline_admin_post(
-    post_id: str,
+    post_id: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -314,9 +360,14 @@ def offline_admin_post(
     return ok(None, "内容已成功下架")
 
 
-@router.put("/posts/{post_id}/restore")
+@router.put(
+    "/posts/{post_id}/restore",
+    response_model=AdminResponse,
+    summary="恢复上架",
+    description="后台将已下架内容恢复为 online，恢复后用户端可见。",
+)
 def restore_admin_post(
-    post_id: str,
+    post_id: Annotated[str, Path(description="内容 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -329,14 +380,19 @@ def restore_admin_post(
     return ok(None, "内容已恢复上架")
 
 
-@router.get("/comments")
+@router.get(
+    "/comments",
+    response_model=AdminResponse,
+    summary="评论列表",
+    description="后台评论管理列表，支持按内容 ID 或评论人用户 ID 筛选。",
+)
 def list_admin_comments(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
-    post_id: str | None = None,
-    user_id: str | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    post_id: Annotated[str | None, Query(description="内容 ID，精确匹配")] = None,
+    user_id: Annotated[str | None, Query(description="评论人业务用户 ID，精确匹配")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
 ) -> dict[str, Any]:
     query = db.query(Comment).filter(Comment.is_deleted.is_(False))
     if post_id:
@@ -348,9 +404,14 @@ def list_admin_comments(
     return ok({"list": [comment_item(db, comment) for comment in comments], "total": total})
 
 
-@router.delete("/comments/{comment_id}")
+@router.delete(
+    "/comments/{comment_id}",
+    response_model=AdminResponse,
+    summary="删除评论",
+    description="后台删除评论。当前为软删除，并同步扣减内容评论数。",
+)
 def delete_admin_comment(
-    comment_id: str,
+    comment_id: Annotated[str, Path(description="评论 ID")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -368,9 +429,14 @@ def delete_admin_comment(
     return ok(None, "评论已成功删除")
 
 
-@router.get("/agreement/{agreement_type}")
+@router.get(
+    "/agreement/{agreement_type}",
+    response_model=AdminResponse,
+    summary="获取协议",
+    description="获取后台维护的协议内容。agreement_type 支持 privacy 或 user。",
+)
 def get_admin_agreement(
-    agreement_type: str,
+    agreement_type: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
@@ -380,9 +446,14 @@ def get_admin_agreement(
     return ok(agreement.content)
 
 
-@router.put("/agreement/{agreement_type}")
+@router.put(
+    "/agreement/{agreement_type}",
+    response_model=AdminResponse,
+    summary="更新协议",
+    description="更新后台维护的协议内容。agreement_type 支持 privacy 或 user。",
+)
 def update_admin_agreement(
-    agreement_type: str,
+    agreement_type: Annotated[str, Path(description="协议类型：privacy 隐私协议，user 用户协议")],
     payload: AgreementUpdate,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[str, Depends(get_admin_subject)],

@@ -9,10 +9,15 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
 
 
-@router.post("/dev-token", response_model=TokenResponse)
+@router.post(
+    "/dev-token",
+    response_model=TokenResponse,
+    summary="开发调试 Token",
+    description="开发联调用接口：创建或更新测试用户，并返回 Bearer Token。",
+)
 def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user_id = payload.user_id or new_business_id("usr")
     user = db.query(User).filter(User.user_id == user_id).one_or_none()
@@ -31,7 +36,12 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
     return TokenResponse(accessToken=create_access_token(user.user_id), userId=user.user_id)
 
 
-@router.post("/wx-login", response_model=WxLoginResponse)
+@router.post(
+    "/wx-login",
+    response_model=WxLoginResponse,
+    summary="微信登录",
+    description="用户端微信登录接口。当前实现为本地联调逻辑，会根据 code 生成模拟 openid 并返回 token。",
+)
 def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginResponse:
     openid = f"mock_openid_{payload.code}"
     user = db.query(User).filter(User.openid == openid).one_or_none()
