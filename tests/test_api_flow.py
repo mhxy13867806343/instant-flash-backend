@@ -253,6 +253,16 @@ def test_admin_system_config_flow() -> None:
     announcement_id = announcement.json()["data"]["id"]
     assert client.put("/api/admin/announcements/batch-publish", json={"ids": [announcement_id]}, headers=headers).status_code == 200
     assert client.put(f"/api/admin/announcements/{announcement_id}", json={"status": "inactive"}, headers=headers).json()["data"]["status"] == "inactive"
+    single_banner = client.get("/api/admin/announcements/SINGLE_BANNER", headers=headers)
+    assert single_banner.status_code == 200
+    assert single_banner.json()["data"]["id"] == "SINGLE_BANNER"
+    single_banner_update = client.put(
+        "/api/admin/announcements/SINGLE_BANNER",
+        json={"title": "首页单公告", "content": "<p>首页公告内容</p>", "pinned": True, "status": "active"},
+        headers=headers,
+    )
+    assert single_banner_update.status_code == 200
+    assert single_banner_update.json()["data"]["title"] == "首页单公告"
 
     versions_empty = client.get("/api/admin/versions", params={"page": 1, "limit": 9999}, headers=headers)
     assert versions_empty.status_code == 200

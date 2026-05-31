@@ -28,6 +28,7 @@ DEFAULT_AGREEMENTS = {
     "privacy": "<h2>即闪隐私政策</h2><p>请在后台编辑最新隐私政策内容。</p>",
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
+SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
 
 
 class AdminLoginRequest(BaseModel):
@@ -1018,6 +1019,27 @@ def get_announcement_or_404(db: Session, announcement_id: str) -> AdminAnnouncem
     return announcement
 
 
+def get_or_create_single_banner(db: Session) -> AdminAnnouncement:
+    announcement = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id == SINGLE_BANNER_ANNOUNCEMENT_ID).one_or_none()
+    if announcement is not None:
+        return announcement
+    announcement = AdminAnnouncement(
+        announcement_id=SINGLE_BANNER_ANNOUNCEMENT_ID,
+        title="【系统通知】即闪 App 服务升级公告",
+        type="info",
+        content="<p>请在后台维护 App 首页单公告内容。</p>",
+        link="",
+        pinned=True,
+        start_time=format_time(utc_now()),
+        end_time="",
+        status="active",
+    )
+    db.add(announcement)
+    db.commit()
+    db.refresh(announcement)
+    return announcement
+
+
 def get_version_or_404(db: Session, version_id: str) -> AdminVersion:
     version = db.query(AdminVersion).filter(AdminVersion.version_id == version_id).one_or_none()
     if version is None:
@@ -1097,9 +1119,21 @@ def batch_delete_announcements_first(payload: BatchIdsPayload, db: Annotated[Ses
     return ok({"count": count}, "批量删除成功")
 
 
+@router.get("/announcements/{announcementId}", response_model=AdminResponse, summary="公告详情", description="根据公告 ID 查询公告详情。SINGLE_BANNER 为 App 首页单公告。")
+def get_admin_announcement(announcementId: Annotated[str, Path(description="公告 ID；SINGLE_BANNER 表示 App 首页单公告")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    if announcementId == SINGLE_BANNER_ANNOUNCEMENT_ID:
+        announcement = get_or_create_single_banner(db)
+    else:
+        announcement = get_announcement_or_404(db, announcementId)
+    return ok(announcement_item(announcement))
+
+
 @router.put("/announcements/{announcementId}", response_model=AdminResponse, summary="修改公告", description="修改后台公告，支持局部字段更新。")
 def update_admin_announcement(announcementId: Annotated[str, Path(description="公告 ID")], payload: AdminAnnouncementPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
-    announcement = get_announcement_or_404(db, announcementId)
+    if announcementId == SINGLE_BANNER_ANNOUNCEMENT_ID:
+        announcement = get_or_create_single_banner(db)
+    else:
+        announcement = get_announcement_or_404(db, announcementId)
     if payload.title is not None:
         announcement.title = payload.title
     if payload.type is not None:
