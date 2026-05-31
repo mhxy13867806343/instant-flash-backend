@@ -405,6 +405,28 @@ def list_admin_notifications(
     return ok({"unreadCount": unread_count, "list": [notification_item(message) for message in messages]})
 
 
+@router.get(
+    "/notifications/{messageId}",
+    response_model=AdminResponse,
+    summary="后台通知详情",
+    description="PC 后台点击右上角通知时调用；按当前 admin 标记该条通知为已读并返回详情。",
+)
+def get_admin_notification_detail(
+    messageId: Annotated[str, Path(description="通知消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    admin_user_id = f"admin:{admin_subject}"
+    message = db.query(Message).filter(Message.user_id == admin_user_id, Message.message_id == messageId).one_or_none()
+    if message is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "通知未找到")
+    message.is_read = True
+    message.last_time = utc_now()
+    db.commit()
+    db.refresh(message)
+    return ok(notification_item(message), "已读取通知详情")
+
+
 @router.put(
     "/notifications/read-all",
     response_model=AdminResponse,

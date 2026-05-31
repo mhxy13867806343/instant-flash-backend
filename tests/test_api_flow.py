@@ -300,15 +300,41 @@ def test_notification_dropdowns_for_admin_and_user() -> None:
     user_message_id = user_notifications.json()["data"]["list"][0]["messageId"]
     assert user_notifications.json()["data"]["list"][0]["title"] == "我的家"
 
-    read_user = client.put(f"/api/messages/{user_message_id}/read", headers=user_headers)
+    read_user = client.get(f"/api/messages/notifications/{user_message_id}", headers=user_headers)
     assert read_user.status_code == 200
     assert read_user.json()["data"]["isRead"] is True
     assert client.get("/api/messages/notifications", headers=user_headers).json()["data"]["unreadCount"] == 0
 
-    read_admin = client.put(f"/api/admin/notifications/{admin_message_id}/read", headers=admin_headers)
+    read_admin = client.get(f"/api/admin/notifications/{admin_message_id}", headers=admin_headers)
     assert read_admin.status_code == 200
     assert read_admin.json()["data"]["isRead"] is True
     assert client.get("/api/admin/notifications", headers=admin_headers).json()["data"]["unreadCount"] == 0
+
+    second_user_token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_notify_other", "nickname": "Other User"},
+    )
+    second_user_headers = {"Authorization": f"Bearer {second_user_token_response.json()['accessToken']}"}
+    second_message = client.post(
+        "/api/admin/system-messages",
+        json={
+            "title": "第二条通知",
+            "content": "用于验证谁点击谁已读，其他用户不受影响",
+            "type": "notification",
+            "target": "all",
+            "status": "published",
+            "isPinned": False,
+        },
+        headers=admin_headers,
+    )
+    assert second_message.status_code == 200
+    first_user_list = client.get("/api/messages/notifications", headers=user_headers).json()["data"]
+    second_user_list = client.get("/api/messages/notifications", headers=second_user_headers).json()["data"]
+    assert first_user_list["unreadCount"] == 1
+    assert second_user_list["unreadCount"] == 1
+    client.get(f"/api/messages/notifications/{first_user_list['list'][0]['messageId']}", headers=user_headers)
+    assert client.get("/api/messages/notifications", headers=user_headers).json()["data"]["unreadCount"] == 0
+    assert client.get("/api/messages/notifications", headers=second_user_headers).json()["data"]["unreadCount"] == 1
 
 
 def test_dev_token_unique_identity_conflict_returns_message() -> None:

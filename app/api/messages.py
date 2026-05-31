@@ -77,6 +77,29 @@ def list_user_notifications(
     return ok({"unreadCount": unread_count, "list": [notification_item(message) for message in messages]})
 
 
+@router.get(
+    "/notifications/{messageId}",
+    summary="用户端通知详情",
+    description="用户端点击通知时调用；按当前登录用户标记该条通知为已读并返回详情。",
+)
+def get_user_notification_detail(
+    messageId: Annotated[str, Path(description="消息 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    message = db.query(Message).filter(Message.user_id == current_user.user_id, Message.message_id == messageId).one_or_none()
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": 404, "message": "消息未找到", "data": {}},
+        )
+    message.is_read = True
+    message.last_time = utc_now()
+    db.commit()
+    db.refresh(message)
+    return ok(notification_item(message), "已读取消息详情")
+
+
 @router.put(
     "/read-all",
     summary="用户端消息全部已读",
