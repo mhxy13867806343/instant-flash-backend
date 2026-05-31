@@ -17,7 +17,7 @@ from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.post import Post
-from app.models.system_config import AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -68,6 +68,45 @@ class AdminDictionaryPayload(BaseModel):
     sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
     status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
     remark: str | None = Field(default=None, title="备注", description="字典项备注")
+
+
+class AdminAnnouncementPayload(BaseModel):
+    title: str | None = Field(default=None, max_length=128, title="公告标题", description="公告标题")
+    type: str | None = Field(default=None, pattern="^(info|warning|danger)$", title="公告类型", description="info 普通，warning 重要提醒，danger 紧急公告")
+    content: str | None = Field(default=None, title="公告内容", description="公告正文，支持富文本")
+    link: str | None = Field(default=None, max_length=512, title="跳转链接", description="公告关联链接")
+    pinned: bool | None = Field(default=None, title="是否置顶", description="是否置顶展示")
+    startTime: str | None = Field(default=None, max_length=32, title="开始时间", description="公告生效开始时间")
+    endTime: str | None = Field(default=None, max_length=32, title="结束时间", description="公告生效结束时间")
+    status: str | None = Field(default=None, pattern="^(active|inactive)$", title="状态", description="active 已发布，inactive 已停用")
+
+
+class AdminVersionPayload(BaseModel):
+    platform: str | None = Field(default=None, pattern="^(iOS|Android|HarmonyOS)$", title="平台", description="版本平台")
+    version: str | None = Field(default=None, max_length=32, title="版本号", description="展示版本号")
+    build: str | None = Field(default=None, max_length=32, title="Build 号", description="内部构建号")
+    forceUpdate: bool | None = Field(default=None, title="是否强制更新", description="是否要求客户端强制更新")
+    status: str | None = Field(default=None, pattern="^(released|beta|deprecated)$", title="状态", description="released 已发布，beta 灰度中，deprecated 已下线")
+    betaPct: int | None = Field(default=None, ge=0, le=100, title="灰度比例", description="灰度发布比例")
+    notes: str | None = Field(default=None, title="更新说明", description="更新说明，支持文本或富文本")
+    notesType: str | None = Field(default=None, pattern="^(text|rich)$", title="说明类型", description="text 文本，rich 富文本")
+    downloadUrl: str | None = Field(default=None, max_length=512, title="下载地址", description="安装包下载地址")
+
+
+class AdminAccountPayload(BaseModel):
+    username: str | None = Field(default=None, max_length=64, title="登录账号", description="后台账号用户名")
+    nickname: str | None = Field(default=None, max_length=64, title="昵称", description="后台账号昵称")
+    avatar: str | None = Field(default=None, max_length=512, title="头像", description="头像地址")
+    role: str | None = Field(default=None, pattern="^(superadmin|admin|operator|viewer)$", title="角色", description="后台角色")
+    permissions: list[str] | None = Field(default=None, title="权限模块", description="账号可访问的权限模块")
+    status: str | None = Field(default=None, pattern="^(active|disabled)$", title="状态", description="active 正常，disabled 禁用")
+    email: str | None = Field(default=None, max_length=128, title="邮箱", description="管理员邮箱")
+    phone: str | None = Field(default=None, max_length=32, title="手机号", description="管理员手机号")
+    remark: str | None = Field(default=None, title="备注", description="账号备注")
+
+
+class BatchIdsPayload(BaseModel):
+    ids: list[str] = Field(default_factory=list, title="ID 列表", description="需要批量操作的业务 ID 列表")
 
 
 class AdminSystemMessagePayload(BaseModel):
@@ -343,6 +382,57 @@ def system_message_item(message: AdminSystemMessage) -> dict[str, Any]:
         "isPinned": message.is_pinned,
         "createdAt": format_time(message.create_time),
         "updatedAt": format_time(message.update_time),
+    }
+
+
+def announcement_item(announcement: AdminAnnouncement) -> dict[str, Any]:
+    return {
+        "id": announcement.announcement_id,
+        "title": announcement.title,
+        "type": announcement.type,
+        "content": announcement.content,
+        "link": announcement.link or "",
+        "pinned": announcement.pinned,
+        "startTime": announcement.start_time or "",
+        "endTime": announcement.end_time or "",
+        "status": announcement.status,
+        "createdAt": format_time(announcement.create_time),
+        "updatedAt": format_time(announcement.update_time),
+    }
+
+
+def version_item(version: AdminVersion) -> dict[str, Any]:
+    return {
+        "id": version.version_id,
+        "platform": version.platform,
+        "version": version.version,
+        "build": version.build,
+        "forceUpdate": version.force_update,
+        "status": version.status,
+        "betaPct": version.beta_pct,
+        "notes": version.notes,
+        "notesType": version.notes_type,
+        "downloadUrl": version.download_url or "",
+        "releaseTime": version.release_time or format_time(version.create_time),
+        "createdAt": format_time(version.create_time),
+        "updatedAt": format_time(version.update_time),
+    }
+
+
+def account_item(account: AdminAccount) -> dict[str, Any]:
+    return {
+        "account_id": account.account_id,
+        "username": account.username,
+        "nickname": account.nickname,
+        "avatar": account.avatar or "",
+        "role": account.role,
+        "permissions": account.permissions or [],
+        "status": account.status,
+        "email": account.email or "",
+        "phone": account.phone or "",
+        "createTime": format_time(account.create_time),
+        "lastLogin": account.last_login or format_time(account.last_time),
+        "remark": account.remark or "",
     }
 
 
@@ -834,6 +924,413 @@ def update_admin_agreement(
     agreement.last_time = utc_now()
     db.commit()
     return ok(None, "协议更新成功")
+
+
+def seed_announcements_if_empty(db: Session) -> None:
+    if db.query(AdminAnnouncement).count():
+        return
+    db.add_all(
+        [
+            AdminAnnouncement(
+                announcement_id=new_business_id("ann"),
+                title="欢迎使用即闪后台",
+                type="info",
+                content="<p>即闪平台后台公告模块已启用。</p>",
+                link="",
+                pinned=True,
+                start_time=format_time(utc_now()),
+                end_time="",
+                status="active",
+            ),
+            AdminAnnouncement(
+                announcement_id=new_business_id("ann"),
+                title="内容安全巡检提醒",
+                type="warning",
+                content="<p>请定期关注内容审核、评论举报和标签风险数据。</p>",
+                link="",
+                pinned=False,
+                start_time=format_time(utc_now()),
+                end_time="",
+                status="active",
+            ),
+        ]
+    )
+    db.commit()
+
+
+def seed_versions_if_empty(db: Session) -> None:
+    if db.query(AdminVersion).count():
+        return
+    now = format_time(utc_now())
+    db.add_all(
+        [
+            AdminVersion(version_id=new_business_id("ver"), platform="iOS", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
+            AdminVersion(version_id=new_business_id("ver"), platform="Android", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
+            AdminVersion(version_id=new_business_id("ver"), platform="HarmonyOS", version="1.0.0", build="100", force_update=False, status="released", beta_pct=100, notes="首个稳定版本", notes_type="text", download_url="", release_time=now),
+        ]
+    )
+    db.commit()
+
+
+def seed_accounts_if_empty(db: Session) -> None:
+    if db.query(AdminAccount).count():
+        return
+    all_permissions = ["dashboard", "user", "content", "comment", "tag", "region", "dict", "message", "agreement", "account"]
+    db.add(
+        AdminAccount(
+            account_id=new_business_id("acc"),
+            username="admin",
+            nickname="超级管理员",
+            avatar="",
+            role="superadmin",
+            permissions=all_permissions,
+            status="active",
+            email="admin@example.com",
+            phone="13800000000",
+            remark="系统默认管理员",
+            password="123456",
+            last_login=format_time(utc_now()),
+        )
+    )
+    db.commit()
+
+
+def get_announcement_or_404(db: Session, announcement_id: str) -> AdminAnnouncement:
+    announcement = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id == announcement_id).one_or_none()
+    if announcement is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "公告未找到")
+    return announcement
+
+
+def get_version_or_404(db: Session, version_id: str) -> AdminVersion:
+    version = db.query(AdminVersion).filter(AdminVersion.version_id == version_id).one_or_none()
+    if version is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "版本未找到")
+    return version
+
+
+def get_account_or_404(db: Session, account_id: str) -> AdminAccount:
+    account = db.query(AdminAccount).filter(AdminAccount.account_id == account_id).one_or_none()
+    if account is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "账号未找到")
+    return account
+
+
+@router.get("/announcements", response_model=AdminResponse, summary="公告列表", description="公告管理列表，支持关键词、类型、状态筛选。")
+def list_admin_announcements(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="标题或内容关键词")] = None,
+    type: Annotated[str | None, Query(description="公告类型：info/warning/danger")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：active/inactive")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=10000, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    seed_announcements_if_empty(db)
+    query = db.query(AdminAnnouncement)
+    if keyword:
+        query = query.filter((AdminAnnouncement.title.ilike(f"%{keyword}%")) | (AdminAnnouncement.content.ilike(f"%{keyword}%")))
+    if type:
+        query = query.filter(AdminAnnouncement.type == type)
+    if status_filter:
+        query = query.filter(AdminAnnouncement.status == status_filter)
+    total = query.count()
+    items = query.order_by(AdminAnnouncement.pinned.desc(), AdminAnnouncement.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [announcement_item(item) for item in items], "total": total})
+
+
+@router.post("/announcements", response_model=AdminResponse, summary="新增公告", description="新增后台公告。")
+def create_admin_announcement(payload: AdminAnnouncementPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    if not payload.title or not payload.content:
+        raise fail(status.HTTP_400_BAD_REQUEST, "公告标题和内容不能为空")
+    announcement = AdminAnnouncement(
+        announcement_id=new_business_id("ann"),
+        title=payload.title,
+        type=payload.type or "info",
+        content=payload.content,
+        link=payload.link or "",
+        pinned=bool(payload.pinned),
+        start_time=payload.startTime or format_time(utc_now()),
+        end_time=payload.endTime or "",
+        status=payload.status or "active",
+    )
+    db.add(announcement)
+    db.commit()
+    db.refresh(announcement)
+    return ok(announcement_item(announcement), "公告创建成功")
+
+
+@router.put("/announcements/batch-publish", response_model=AdminResponse, summary="批量发布公告", description="批量设置公告为发布状态。")
+def batch_publish_announcements_first(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).update({"status": "active", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量发布成功")
+
+
+@router.put("/announcements/batch-disable", response_model=AdminResponse, summary="批量停用公告", description="批量设置公告为停用状态。")
+def batch_disable_announcements_first(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).update({"status": "inactive", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量停用成功")
+
+
+@router.post("/announcements/batch-delete", response_model=AdminResponse, summary="批量删除公告", description="批量删除后台公告。")
+def batch_delete_announcements_first(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量删除成功")
+
+
+@router.put("/announcements/{announcementId}", response_model=AdminResponse, summary="修改公告", description="修改后台公告，支持局部字段更新。")
+def update_admin_announcement(announcementId: Annotated[str, Path(description="公告 ID")], payload: AdminAnnouncementPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    announcement = get_announcement_or_404(db, announcementId)
+    if payload.title is not None:
+        announcement.title = payload.title
+    if payload.type is not None:
+        announcement.type = payload.type
+    if payload.content is not None:
+        announcement.content = payload.content
+    if payload.link is not None:
+        announcement.link = payload.link
+    if payload.pinned is not None:
+        announcement.pinned = payload.pinned
+    if payload.startTime is not None:
+        announcement.start_time = payload.startTime
+    if payload.endTime is not None:
+        announcement.end_time = payload.endTime
+    if payload.status is not None:
+        announcement.status = payload.status
+    announcement.last_time = utc_now()
+    db.commit()
+    db.refresh(announcement)
+    return ok(announcement_item(announcement), "公告更新成功")
+
+
+@router.delete("/announcements/{announcementId}", response_model=AdminResponse, summary="删除公告", description="删除后台公告。")
+def delete_admin_announcement(announcementId: Annotated[str, Path(description="公告 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    announcement = get_announcement_or_404(db, announcementId)
+    db.delete(announcement)
+    db.commit()
+    return ok(None, "公告删除成功")
+
+
+@router.put("/announcements/batch-publish", response_model=AdminResponse, summary="批量发布公告", description="批量设置公告为发布状态。")
+def batch_publish_announcements(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).update({"status": "active", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量发布成功")
+
+
+@router.put("/announcements/batch-disable", response_model=AdminResponse, summary="批量停用公告", description="批量设置公告为停用状态。")
+def batch_disable_announcements(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).update({"status": "inactive", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量停用成功")
+
+
+@router.post("/announcements/batch-delete", response_model=AdminResponse, summary="批量删除公告", description="批量删除后台公告。")
+def batch_delete_announcements(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量删除成功")
+
+
+@router.get("/versions", response_model=AdminResponse, summary="版本列表", description="版本管理列表，支持平台、状态、强制更新筛选。")
+def list_admin_versions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    platform: Annotated[str | None, Query(description="平台：iOS/Android/HarmonyOS")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：released/beta/deprecated")] = None,
+    forceUpdate: Annotated[bool | None, Query(description="是否强制更新")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=10000, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    seed_versions_if_empty(db)
+    query = db.query(AdminVersion)
+    if platform:
+        query = query.filter(AdminVersion.platform == platform)
+    if status_filter:
+        query = query.filter(AdminVersion.status == status_filter)
+    if forceUpdate is not None:
+        query = query.filter(AdminVersion.force_update == forceUpdate)
+    total = query.count()
+    items = query.order_by(AdminVersion.platform.asc(), AdminVersion.build.desc(), AdminVersion.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [version_item(item) for item in items], "total": total})
+
+
+@router.post("/versions", response_model=AdminResponse, summary="新增版本", description="新增 App 版本记录。")
+def create_admin_version(payload: AdminVersionPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    if not payload.platform or not payload.version or not payload.build:
+        raise fail(status.HTTP_400_BAD_REQUEST, "平台、版本号和 Build 号不能为空")
+    version = AdminVersion(
+        version_id=new_business_id("ver"),
+        platform=payload.platform,
+        version=payload.version,
+        build=payload.build,
+        force_update=bool(payload.forceUpdate),
+        status=payload.status or "released",
+        beta_pct=payload.betaPct if payload.betaPct is not None else 0,
+        notes=payload.notes or "",
+        notes_type=payload.notesType or "text",
+        download_url=payload.downloadUrl or "",
+        release_time=format_time(utc_now()),
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return ok(version_item(version), "版本创建成功")
+
+
+@router.put("/versions/batch-deprecate", response_model=AdminResponse, summary="批量下线版本", description="批量设置 App 版本为已下线。")
+def batch_deprecate_versions_first(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).update({"status": "deprecated", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量下线成功")
+
+
+@router.post("/versions/batch-delete", response_model=AdminResponse, summary="批量删除版本", description="批量删除 App 版本记录。")
+def batch_delete_versions_first(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量删除成功")
+
+
+@router.put("/versions/{versionId}", response_model=AdminResponse, summary="修改版本", description="修改 App 版本记录，支持局部字段更新。")
+def update_admin_version(versionId: Annotated[str, Path(description="版本 ID")], payload: AdminVersionPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    version = get_version_or_404(db, versionId)
+    if payload.platform is not None:
+        version.platform = payload.platform
+    if payload.version is not None:
+        version.version = payload.version
+    if payload.build is not None:
+        version.build = payload.build
+    if payload.forceUpdate is not None:
+        version.force_update = payload.forceUpdate
+    if payload.status is not None:
+        version.status = payload.status
+    if payload.betaPct is not None:
+        version.beta_pct = payload.betaPct
+    if payload.notes is not None:
+        version.notes = payload.notes
+    if payload.notesType is not None:
+        version.notes_type = payload.notesType
+    if payload.downloadUrl is not None:
+        version.download_url = payload.downloadUrl
+    version.last_time = utc_now()
+    db.commit()
+    db.refresh(version)
+    return ok(version_item(version), "版本更新成功")
+
+
+@router.delete("/versions/{versionId}", response_model=AdminResponse, summary="删除版本", description="删除 App 版本记录。")
+def delete_admin_version(versionId: Annotated[str, Path(description="版本 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    version = get_version_or_404(db, versionId)
+    db.delete(version)
+    db.commit()
+    return ok(None, "版本删除成功")
+
+
+@router.put("/versions/{versionId}/deprecate", response_model=AdminResponse, summary="下线版本", description="将 App 版本状态设置为已下线。")
+def deprecate_admin_version(versionId: Annotated[str, Path(description="版本 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    version = get_version_or_404(db, versionId)
+    version.status = "deprecated"
+    version.last_time = utc_now()
+    db.commit()
+    db.refresh(version)
+    return ok(version_item(version), "版本已下线")
+
+
+@router.put("/versions/batch-deprecate", response_model=AdminResponse, summary="批量下线版本", description="批量设置 App 版本为已下线。")
+def batch_deprecate_versions(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).update({"status": "deprecated", "last_time": utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量下线成功")
+
+
+@router.post("/versions/batch-delete", response_model=AdminResponse, summary="批量删除版本", description="批量删除 App 版本记录。")
+def batch_delete_versions(payload: BatchIdsPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量删除成功")
+
+
+@router.get("/accounts", response_model=AdminResponse, summary="后台账号列表", description="账号管理列表。")
+def list_admin_accounts(db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_accounts_if_empty(db)
+    accounts = db.query(AdminAccount).order_by(AdminAccount.role.asc(), AdminAccount.create_time.desc()).all()
+    return ok([account_item(account) for account in accounts])
+
+
+@router.post("/accounts", response_model=AdminResponse, summary="新增后台账号", description="新增后台管理账号。")
+def create_admin_account(payload: AdminAccountPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    if not payload.username or not payload.nickname:
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号和昵称不能为空")
+    if db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号已存在")
+    account = AdminAccount(
+        account_id=new_business_id("acc"),
+        username=payload.username,
+        nickname=payload.nickname,
+        avatar=payload.avatar or "",
+        role=payload.role or "admin",
+        permissions=payload.permissions or [],
+        status=payload.status or "active",
+        email=payload.email or "",
+        phone=payload.phone or "",
+        remark=payload.remark or "",
+        password="123456",
+        last_login="",
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return ok(account_item(account), "账号创建成功")
+
+
+@router.put("/accounts/{accountId}", response_model=AdminResponse, summary="修改后台账号", description="修改后台账号信息。")
+def update_admin_account(accountId: Annotated[str, Path(description="账号 ID")], payload: AdminAccountPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    account = get_account_or_404(db, accountId)
+    if payload.username is not None and payload.username != account.username:
+        if db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none():
+            raise fail(status.HTTP_400_BAD_REQUEST, "账号已存在")
+        account.username = payload.username
+    if payload.nickname is not None:
+        account.nickname = payload.nickname
+    if payload.avatar is not None:
+        account.avatar = payload.avatar
+    if payload.role is not None:
+        account.role = payload.role
+    if payload.permissions is not None:
+        account.permissions = payload.permissions
+    if payload.status is not None:
+        account.status = payload.status
+    if payload.email is not None:
+        account.email = payload.email
+    if payload.phone is not None:
+        account.phone = payload.phone
+    if payload.remark is not None:
+        account.remark = payload.remark
+    account.last_time = utc_now()
+    db.commit()
+    db.refresh(account)
+    return ok(account_item(account), "账号更新成功")
+
+
+@router.delete("/accounts/{accountId}", response_model=AdminResponse, summary="删除后台账号", description="删除后台账号。")
+def delete_admin_account(accountId: Annotated[str, Path(description="账号 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    account = get_account_or_404(db, accountId)
+    db.delete(account)
+    db.commit()
+    return ok(None, "账号删除成功")
+
+
+@router.post("/accounts/{accountId}/reset-password", response_model=AdminResponse, summary="重置后台账号密码", description="将后台账号密码重置为 123456。")
+def reset_admin_account_password(accountId: Annotated[str, Path(description="账号 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    account = get_account_or_404(db, accountId)
+    account.password = "123456"
+    account.last_time = utc_now()
+    db.commit()
+    return ok(None, "密码已重置为 123456")
 
 
 @router.get(

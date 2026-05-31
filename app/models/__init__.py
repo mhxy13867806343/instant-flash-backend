@@ -4,15 +4,18 @@ from app.models.message import Message
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.system_config import AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 __all__ = [
     "AdminAgreement",
+    "AdminAccount",
+    "AdminAnnouncement",
     "AdminDictionary",
     "AdminRegion",
     "AdminSystemMessage",
     "AdminTag",
+    "AdminVersion",
     "Comment",
     "Message",
     "Post",

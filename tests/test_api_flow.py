@@ -232,6 +232,77 @@ def test_admin_system_config_flow() -> None:
     tag_detail = client.get(f"/api/admin/tags/{tag_id}", headers=headers)
     assert tag_detail.json()["data"]["linkedPostCount"] == 1
 
+    announcements_empty = client.get("/api/admin/announcements", params={"keyword": "", "page": 1, "limit": 9999}, headers=headers)
+    assert announcements_empty.status_code == 200
+    assert announcements_empty.json()["data"]["total"] >= 1
+    announcement = client.post(
+        "/api/admin/announcements",
+        json={
+            "title": "测试公告",
+            "type": "info",
+            "content": "<p>公告内容</p>",
+            "link": "",
+            "pinned": False,
+            "startTime": "2026-06-01 10:00:00",
+            "endTime": "",
+            "status": "inactive",
+        },
+        headers=headers,
+    )
+    assert announcement.status_code == 200
+    announcement_id = announcement.json()["data"]["id"]
+    assert client.put("/api/admin/announcements/batch-publish", json={"ids": [announcement_id]}, headers=headers).status_code == 200
+    assert client.put(f"/api/admin/announcements/{announcement_id}", json={"status": "inactive"}, headers=headers).json()["data"]["status"] == "inactive"
+
+    versions_empty = client.get("/api/admin/versions", params={"page": 1, "limit": 9999}, headers=headers)
+    assert versions_empty.status_code == 200
+    assert versions_empty.json()["data"]["total"] >= 1
+    version = client.post(
+        "/api/admin/versions",
+        json={
+            "platform": "iOS",
+            "version": "1.2.3",
+            "build": "123",
+            "forceUpdate": False,
+            "status": "beta",
+            "betaPct": 20,
+            "notes": "测试版本",
+            "notesType": "text",
+            "downloadUrl": "",
+        },
+        headers=headers,
+    )
+    assert version.status_code == 200
+    version_id = version.json()["data"]["id"]
+    assert client.put(f"/api/admin/versions/{version_id}/deprecate", headers=headers).json()["data"]["status"] == "deprecated"
+    assert client.put("/api/admin/versions/batch-deprecate", json={"ids": [version_id]}, headers=headers).status_code == 200
+
+    accounts = client.get("/api/admin/accounts", headers=headers)
+    assert accounts.status_code == 200
+    assert isinstance(accounts.json()["data"], list)
+    account = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "operator_test",
+            "nickname": "运营测试",
+            "avatar": "",
+            "role": "operator",
+            "permissions": ["dashboard", "content"],
+            "status": "active",
+            "email": "operator@example.com",
+            "phone": "13800000001",
+            "remark": "测试账号",
+        },
+        headers=headers,
+    )
+    assert account.status_code == 200
+    account_id = account.json()["data"]["account_id"]
+    assert client.put(f"/api/admin/accounts/{account_id}", json={"status": "disabled"}, headers=headers).json()["data"]["status"] == "disabled"
+    assert client.post(f"/api/admin/accounts/{account_id}/reset-password", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/accounts/{account_id}", headers=headers).status_code == 200
+    assert client.post("/api/admin/versions/batch-delete", json={"ids": [version_id]}, headers=headers).status_code == 200
+    assert client.post("/api/admin/announcements/batch-delete", json={"ids": [announcement_id]}, headers=headers).status_code == 200
+
     region = client.post(
         "/api/admin/regions",
         json={"name": "广东省", "code": "440000", "level": 1, "sort": 1, "status": "enabled"},
