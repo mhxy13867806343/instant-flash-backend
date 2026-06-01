@@ -530,11 +530,27 @@ def get_or_create_agreement(db: Session, agreement_type: str) -> AdminAgreement:
     summary="后台登录",
     description="后台管理系统登录接口。演示账号 admin，密码 123456。",
 )
-def admin_login(payload: AdminLoginRequest) -> dict[str, Any]:
-    if payload.username == "admin" and payload.password == "123456":
-        token = create_access_token(f"admin:{payload.username}")
-        return ok({"token": token, "username": payload.username}, "登录成功")
-    raise fail(status.HTTP_400_BAD_REQUEST, "用户名或密码错误")
+def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_db)]) -> dict[str, Any]:
+    seed_accounts_if_empty(db)
+    account = db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none()
+    if account is None or account.password != payload.password:
+        raise fail(status.HTTP_400_BAD_REQUEST, "用户名或密码错误")
+    if account.status != "active":
+        raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
+    account.last_login = format_time(utc_now())
+    account.last_time = utc_now()
+    db.commit()
+    token = create_access_token(f"admin:{account.username}")
+    return ok(
+        {
+            "token": token,
+            "username": account.username,
+            "nickname": account.nickname,
+            "role": account.role,
+            "permissions": account.permissions,
+        },
+        "登录成功",
+    )
 
 
 @router.get(

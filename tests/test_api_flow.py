@@ -307,7 +307,12 @@ def test_admin_system_config_flow() -> None:
     )
     assert account.status_code == 200
     account_id = account.json()["data"]["account_id"]
+    account_login = client.post("/api/admin/auth/login", json={"username": "operator_test", "password": "123456"})
+    assert account_login.status_code == 200
+    assert account_login.json()["data"]["username"] == "operator_test"
     assert client.put(f"/api/admin/accounts/{account_id}", json={"status": "disabled"}, headers=headers).json()["data"]["status"] == "disabled"
+    disabled_login = client.post("/api/admin/auth/login", json={"username": "operator_test", "password": "123456"})
+    assert disabled_login.status_code == 403
     assert client.post(f"/api/admin/accounts/{account_id}/reset-password", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/accounts/{account_id}", headers=headers).status_code == 200
     assert client.post("/api/admin/versions/batch-delete", json={"ids": [version_id]}, headers=headers).status_code == 200
