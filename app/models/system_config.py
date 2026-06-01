@@ -100,7 +100,7 @@ class AdminAccount(TimestampMixin, Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     nickname: Mapped[str] = mapped_column(String(64), nullable=False)
     avatar: Mapped[str | None] = mapped_column(String(512))
-    role: Mapped[str] = mapped_column(String(32), default="admin", nullable=False)
+    role: Mapped[str] = mapped_column(String(64), default="admin", nullable=False)
     permissions: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     email: Mapped[str | None] = mapped_column(String(128))
@@ -108,6 +108,21 @@ class AdminAccount(TimestampMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text)
     password: Mapped[str] = mapped_column(String(128), default="123456", nullable=False)
     last_login: Mapped[str | None] = mapped_column(String(32))
+
+
+class AdminRole(TimestampMixin, Base):
+    __tablename__ = "admin_roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    role_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    icon: Mapped[str | None] = mapped_column(String(64))
+    permissions: Mapped[list[str]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
 
 
 class AdminMenu(TimestampMixin, Base):

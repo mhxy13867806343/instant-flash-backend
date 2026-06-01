@@ -199,11 +199,12 @@ def test_admin_system_config_flow() -> None:
 
     menu_tree = client.get("/api/admin/menus", headers=headers)
     assert menu_tree.status_code == 200
-    assert menu_tree.json()["data"]["total"] >= 17
+    assert menu_tree.json()["data"]["total"] >= 18
     assert menu_tree.json()["data"]["list"][0]["menuId"] == "menu_dashboard"
     menu_routes = client.get("/api/admin/menus/routes", headers=headers)
     assert menu_routes.status_code == 200
     assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "MenuList" for item in menu_routes.json()["data"]["flatList"])
     viewer = client.post(
         "/api/admin/accounts",
         json={
@@ -273,6 +274,48 @@ def test_admin_system_config_flow() -> None:
         headers=headers,
     ).json()["data"]["title"] == "测试菜单2"
     assert client.delete(f"/api/admin/menus/{menu_id}", headers=headers).status_code == 200
+
+    roles = client.get("/api/admin/roles", headers=headers)
+    assert roles.status_code == 200
+    assert roles.json()["data"]["total"] >= 4
+    assert {item["roleKey"] for item in roles.json()["data"]["list"]} >= {"superadmin", "admin", "operator", "viewer"}
+    default_viewer = next(item for item in roles.json()["data"]["list"] if item["roleKey"] == "viewer")
+    default_delete = client.delete(f"/api/admin/roles/{default_viewer['roleId']}", headers=headers)
+    assert default_delete.status_code == 400
+    assert default_delete.json()["message"] == "系统默认角色不能删除"
+    custom_role = client.post(
+        "/api/admin/roles",
+        json={
+            "roleKey": "auditor_test",
+            "label": "审计员",
+            "icon": "View",
+            "permissions": ["dashboard"],
+            "sort": 50,
+            "status": "enabled",
+            "remark": "测试角色",
+        },
+        headers=headers,
+    )
+    assert custom_role.status_code == 200
+    custom_role_id = custom_role.json()["data"]["roleId"]
+    role_detail = client.get(f"/api/admin/roles/{custom_role_id}", headers=headers)
+    assert role_detail.status_code == 200
+    assert role_detail.json()["data"]["roleKey"] == "auditor_test"
+    role_update = client.put(
+        f"/api/admin/roles/{custom_role_id}",
+        json={
+            "roleKey": "auditor_test",
+            "label": "审计员2",
+            "icon": "View",
+            "permissions": ["dashboard", "agreement"],
+            "sort": 51,
+            "status": "enabled",
+            "remark": "测试角色更新",
+        },
+        headers=headers,
+    )
+    assert role_update.status_code == 200
+    assert role_update.json()["data"]["label"] == "审计员2"
 
     tag = client.post(
         "/api/admin/tags",
@@ -384,6 +427,40 @@ def test_admin_system_config_flow() -> None:
     )
     assert account.status_code == 200
     account_id = account.json()["data"]["account_id"]
+    assert account.json()["data"]["accountId"] == account_id
+    account_detail = client.get(f"/api/admin/accounts/{account_id}", headers=headers)
+    assert account_detail.status_code == 200
+    assert account_detail.json()["data"]["accountId"] == account_id
+    account_keyword_empty = client.get("/api/admin/accounts", params={"keyword": "1111"}, headers=headers)
+    assert account_keyword_empty.status_code == 200
+    assert account_keyword_empty.json()["data"] == []
+    account_keyword_match = client.get("/api/admin/accounts", params={"keyword": "operator"}, headers=headers)
+    assert account_keyword_match.status_code == 200
+    assert account_keyword_match.json()["data"][0]["accountId"] == account_id
+    account_role_match = client.get("/api/admin/accounts", params={"role": "operator", "status": "active"}, headers=headers)
+    assert account_role_match.status_code == 200
+    assert any(item["accountId"] == account_id for item in account_role_match.json()["data"])
+    custom_account = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "auditor_account",
+            "nickname": "审计账号",
+            "avatar": "",
+            "role": "auditor_test",
+            "permissions": ["dashboard"],
+            "status": "active",
+            "email": "auditor@example.com",
+            "phone": "13800000004",
+            "remark": "使用自定义角色",
+        },
+        headers=headers,
+    )
+    assert custom_account.status_code == 200
+    custom_account_id = custom_account.json()["data"]["accountId"]
+    in_use_delete = client.delete(f"/api/admin/roles/{custom_role_id}", headers=headers)
+    assert in_use_delete.status_code == 400
+    assert in_use_delete.json()["message"] == "存在账号正在使用该角色，不能删除"
+    assert client.delete(f"/api/admin/accounts/{custom_account_id}", headers=headers).status_code == 200
     account_login = client.post("/api/admin/auth/login", json={"username": "operator_test", "password": "123456"})
     assert account_login.status_code == 200
     assert account_login.json()["data"]["username"] == "operator_test"
@@ -392,6 +469,7 @@ def test_admin_system_config_flow() -> None:
     assert disabled_login.status_code == 403
     assert client.post(f"/api/admin/accounts/{account_id}/reset-password", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/accounts/{account_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/roles/{custom_role_id}", headers=headers).status_code == 200
     assert client.post("/api/admin/versions/batch-delete", json={"ids": [version_id]}, headers=headers).status_code == 200
     assert client.post("/api/admin/announcements/batch-delete", json={"ids": [announcement_id]}, headers=headers).status_code == 200
 

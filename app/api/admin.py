@@ -17,7 +17,7 @@ from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.post import Post
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminRegion, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminRegion, AdminRole, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -29,6 +29,13 @@ DEFAULT_AGREEMENTS = {
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "tag", "region", "dict", "menu", "message", "agreement"]
+DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
+    {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "tag", "region", "message"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
+    {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
+]
 DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_dashboard", "parent_id": None, "title": "数据看板", "path": "/dashboard", "name": "Dashboard", "component": "views/dashboard/Index", "icon": "Odometer", "type": "menu", "permission": "dashboard", "sort": 10, "affix": True, "remark": "后台首页数据看板"},
     {"menu_id": "menu_user", "parent_id": None, "title": "用户管理", "path": "/user", "name": "UserList", "component": "views/user/List", "icon": "User", "type": "menu", "permission": "user", "sort": 20},
@@ -44,9 +51,10 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_tag", "parent_id": "menu_system", "title": "标签管理", "path": "/tag", "name": "TagList", "component": "views/tag/List", "icon": "PriceTag", "type": "menu", "permission": "tag", "sort": 10},
     {"menu_id": "menu_region", "parent_id": "menu_system", "title": "地区管理", "path": "/region", "name": "RegionList", "component": "views/region/List", "icon": "Location", "type": "menu", "permission": "region", "sort": 20},
     {"menu_id": "menu_dict", "parent_id": "menu_system", "title": "字典管理", "path": "/dict", "name": "DictList", "component": "views/dict/List", "icon": "Memo", "type": "menu", "permission": "dict", "sort": 30},
-    {"menu_id": "menu_message", "parent_id": "menu_system", "title": "系统消息", "path": "/message", "name": "SysMessage", "component": "views/message/List", "icon": "Message", "type": "menu", "permission": "message", "sort": 40},
-    {"menu_id": "menu_privacy", "parent_id": "menu_system", "title": "隐私协议", "path": "/agreement/privacy", "name": "PrivacyAgreement", "component": "views/agreement/Privacy", "icon": "Lock", "type": "menu", "permission": "agreement", "sort": 50},
-    {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 60},
+    {"menu_id": "menu_menu", "parent_id": "menu_system", "title": "菜单管理", "path": "/menu", "name": "MenuList", "component": "views/menu/List", "icon": "Menu", "type": "menu", "permission": "menu", "sort": 40},
+    {"menu_id": "menu_message", "parent_id": "menu_system", "title": "系统消息", "path": "/message", "name": "SysMessage", "component": "views/message/List", "icon": "Message", "type": "menu", "permission": "message", "sort": 50},
+    {"menu_id": "menu_privacy", "parent_id": "menu_system", "title": "隐私协议", "path": "/agreement/privacy", "name": "PrivacyAgreement", "component": "views/agreement/Privacy", "icon": "Lock", "type": "menu", "permission": "agreement", "sort": 60},
+    {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 70},
 ]
 
 
@@ -117,12 +125,22 @@ class AdminAccountPayload(BaseModel):
     username: str | None = Field(default=None, max_length=64, title="登录账号", description="后台账号用户名")
     nickname: str | None = Field(default=None, max_length=64, title="昵称", description="后台账号昵称")
     avatar: str | None = Field(default=None, max_length=512, title="头像", description="头像地址")
-    role: str | None = Field(default=None, pattern="^(superadmin|admin|operator|viewer)$", title="角色", description="后台角色")
+    role: str | None = Field(default=None, max_length=64, title="角色", description="后台角色 key，来自角色管理")
     permissions: list[str] | None = Field(default=None, title="权限模块", description="账号可访问的权限模块")
     status: str | None = Field(default=None, pattern="^(active|disabled)$", title="状态", description="active 正常，disabled 禁用")
     email: str | None = Field(default=None, max_length=128, title="邮箱", description="管理员邮箱")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="管理员手机号")
     remark: str | None = Field(default=None, title="备注", description="账号备注")
+
+
+class AdminRolePayload(BaseModel):
+    roleKey: str = Field(min_length=1, max_length=64, title="角色标识", description="角色 key，例如 operator")
+    label: str = Field(min_length=1, max_length=64, title="角色名称", description="角色中文名称")
+    icon: str | None = Field(default=None, max_length=64, title="角色图标", description="前端角色图标名")
+    permissions: list[str] = Field(default_factory=list, title="权限模块", description="角色默认权限模块")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    remark: str | None = Field(default=None, title="备注", description="角色备注")
 
 
 class AdminMenuPayload(BaseModel):
@@ -460,6 +478,7 @@ def version_item(version: AdminVersion) -> dict[str, Any]:
 
 def account_item(account: AdminAccount) -> dict[str, Any]:
     return {
+        "accountId": account.account_id,
         "account_id": account.account_id,
         "username": account.username,
         "nickname": account.nickname,
@@ -472,6 +491,22 @@ def account_item(account: AdminAccount) -> dict[str, Any]:
         "createTime": format_time(account.create_time),
         "lastLogin": account.last_login or format_time(account.last_time),
         "remark": account.remark or "",
+    }
+
+
+def role_item(role: AdminRole) -> dict[str, Any]:
+    return {
+        "roleId": role.role_id,
+        "roleKey": role.role_key,
+        "label": role.label,
+        "icon": role.icon or "",
+        "permissions": role.permissions or [],
+        "sort": role.sort,
+        "status": role.status,
+        "isDefault": role.is_default,
+        "remark": role.remark or "",
+        "createdAt": format_time(role.create_time),
+        "updatedAt": format_time(role.update_time),
     }
 
 
@@ -1131,7 +1166,6 @@ def seed_versions_if_empty(db: Session) -> None:
 def seed_accounts_if_empty(db: Session) -> None:
     if db.query(AdminAccount).count():
         return
-    all_permissions = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "tag", "region", "dict", "message", "agreement"]
     db.add(
         AdminAccount(
             account_id=new_business_id("acc"),
@@ -1139,7 +1173,7 @@ def seed_accounts_if_empty(db: Session) -> None:
             nickname="超级管理员",
             avatar="",
             role="superadmin",
-            permissions=all_permissions,
+            permissions=DEFAULT_ADMIN_PERMISSIONS,
             status="active",
             email="admin@example.com",
             phone="13800000000",
@@ -1149,6 +1183,31 @@ def seed_accounts_if_empty(db: Session) -> None:
         )
     )
     db.commit()
+
+
+def seed_roles_if_empty(db: Session) -> None:
+    existing_ids = {row[0] for row in db.query(AdminRole.role_id).all()}
+    existing_keys = {row[0] for row in db.query(AdminRole.role_key).all()}
+    new_roles = []
+    for item in DEFAULT_ADMIN_ROLES:
+        if item["role_id"] in existing_ids or item["role_key"] in existing_keys:
+            continue
+        new_roles.append(
+            AdminRole(
+                role_id=item["role_id"],
+                role_key=item["role_key"],
+                label=item["label"],
+                icon=item.get("icon"),
+                permissions=item.get("permissions", []),
+                sort=item.get("sort", 0),
+                status=item.get("status", "enabled"),
+                is_default=item.get("is_default", False),
+                remark=item.get("remark"),
+            )
+        )
+    if new_roles:
+        db.add_all(new_roles)
+        db.commit()
 
 
 def seed_menus_if_empty(db: Session) -> None:
@@ -1223,6 +1282,24 @@ def get_account_or_404(db: Session, account_id: str) -> AdminAccount:
     if account is None:
         raise fail(status.HTTP_404_NOT_FOUND, "账号未找到")
     return account
+
+
+def get_role_or_404(db: Session, role_id: str) -> AdminRole:
+    role = db.query(AdminRole).filter(AdminRole.role_id == role_id).one_or_none()
+    if role is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "角色未找到")
+    return role
+
+
+def validate_role_exists(db: Session, role_key: str | None) -> None:
+    if not role_key:
+        return
+    seed_roles_if_empty(db)
+    role = db.query(AdminRole).filter(AdminRole.role_key == role_key).one_or_none()
+    if role is None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "角色不存在")
+    if role.status != "enabled":
+        raise fail(status.HTTP_400_BAD_REQUEST, "角色已停用")
 
 
 def get_menu_or_404(db: Session, menu_id: str) -> AdminMenu:
@@ -1661,10 +1738,107 @@ def delete_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")
     return ok(None, "菜单删除成功")
 
 
+@router.get("/roles", response_model=AdminResponse, summary="后台角色列表", description="账号管理 - 角色列表，默认包含超级管理员、管理员、运营员、观察员。")
+def list_admin_roles(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="角色名称或 key 关键词")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled/disabled")] = None,
+) -> dict[str, Any]:
+    seed_roles_if_empty(db)
+    query = db.query(AdminRole)
+    if keyword:
+        query = query.filter((AdminRole.label.ilike(f"%{keyword}%")) | (AdminRole.role_key.ilike(f"%{keyword}%")))
+    if status_filter:
+        query = query.filter(AdminRole.status == status_filter)
+    roles = query.order_by(AdminRole.sort.asc(), AdminRole.create_time.asc()).all()
+    return ok({"list": [role_item(role) for role in roles], "total": len(roles)})
+
+
+@router.post("/roles", response_model=AdminResponse, summary="新增后台角色", description="新增后台角色，默认角色不可删除，自定义角色可删除。")
+def create_admin_role(payload: AdminRolePayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_roles_if_empty(db)
+    if db.query(AdminRole).filter(AdminRole.role_key == payload.roleKey).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "角色标识已存在")
+    role = AdminRole(
+        role_id=new_business_id("role"),
+        role_key=payload.roleKey,
+        label=payload.label,
+        icon=payload.icon,
+        permissions=payload.permissions,
+        sort=payload.sort,
+        status=payload.status,
+        is_default=False,
+        remark=payload.remark,
+    )
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return ok(role_item(role), "角色创建成功")
+
+
+@router.get("/roles/{roleId}", response_model=AdminResponse, summary="后台角色详情", description="根据角色 ID 查询角色详情。")
+def get_admin_role(roleId: Annotated[str, Path(description="角色 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_roles_if_empty(db)
+    return ok(role_item(get_role_or_404(db, roleId)))
+
+
+@router.put("/roles/{roleId}", response_model=AdminResponse, summary="修改后台角色", description="修改后台角色，默认角色也允许修改，但不允许删除。")
+def update_admin_role(roleId: Annotated[str, Path(description="角色 ID")], payload: AdminRolePayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_roles_if_empty(db)
+    role = get_role_or_404(db, roleId)
+    duplicate = db.query(AdminRole).filter(AdminRole.role_key == payload.roleKey, AdminRole.role_id != roleId).one_or_none()
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "角色标识已存在")
+    role.role_key = payload.roleKey
+    role.label = payload.label
+    role.icon = payload.icon
+    role.permissions = payload.permissions
+    role.sort = payload.sort
+    role.status = payload.status
+    role.remark = payload.remark
+    role.last_time = utc_now()
+    db.commit()
+    db.refresh(role)
+    return ok(role_item(role), "角色更新成功")
+
+
+@router.delete("/roles/{roleId}", response_model=AdminResponse, summary="删除后台角色", description="删除自定义角色；系统默认角色不允许删除。")
+def delete_admin_role(roleId: Annotated[str, Path(description="角色 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_roles_if_empty(db)
+    role = get_role_or_404(db, roleId)
+    if role.is_default:
+        raise fail(status.HTTP_400_BAD_REQUEST, "系统默认角色不能删除")
+    if db.query(AdminAccount).filter(AdminAccount.role == role.role_key).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "存在账号正在使用该角色，不能删除")
+    db.delete(role)
+    db.commit()
+    return ok(None, "角色删除成功")
+
+
 @router.get("/accounts", response_model=AdminResponse, summary="后台账号列表", description="账号管理列表。")
-def list_admin_accounts(db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+def list_admin_accounts(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="搜索用户名、昵称、邮箱、手机号")] = None,
+    role: Annotated[str | None, Query(description="角色 key")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：active/disabled")] = None,
+) -> dict[str, Any]:
     seed_accounts_if_empty(db)
-    accounts = db.query(AdminAccount).order_by(AdminAccount.role.asc(), AdminAccount.create_time.desc()).all()
+    query = db.query(AdminAccount)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter(
+            (AdminAccount.username.ilike(like_keyword))
+            | (AdminAccount.nickname.ilike(like_keyword))
+            | (AdminAccount.email.ilike(like_keyword))
+            | (AdminAccount.phone.ilike(like_keyword))
+        )
+    if role:
+        query = query.filter(AdminAccount.role == role)
+    if status_filter:
+        query = query.filter(AdminAccount.status == status_filter)
+    accounts = query.order_by(AdminAccount.role.asc(), AdminAccount.create_time.desc()).all()
     return ok([account_item(account) for account in accounts])
 
 
@@ -1674,6 +1848,7 @@ def create_admin_account(payload: AdminAccountPayload, db: Annotated[Session, De
         raise fail(status.HTTP_400_BAD_REQUEST, "账号和昵称不能为空")
     if db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none():
         raise fail(status.HTTP_400_BAD_REQUEST, "账号已存在")
+    validate_role_exists(db, payload.role or "admin")
     account = AdminAccount(
         account_id=new_business_id("acc"),
         username=payload.username,
@@ -1694,6 +1869,12 @@ def create_admin_account(payload: AdminAccountPayload, db: Annotated[Session, De
     return ok(account_item(account), "账号创建成功")
 
 
+@router.get("/accounts/{accountId}", response_model=AdminResponse, summary="后台账号详情", description="根据账号 ID 查询后台账号最新详情。")
+def get_admin_account(accountId: Annotated[str, Path(description="账号 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_accounts_if_empty(db)
+    return ok(account_item(get_account_or_404(db, accountId)))
+
+
 @router.put("/accounts/{accountId}", response_model=AdminResponse, summary="修改后台账号", description="修改后台账号信息。")
 def update_admin_account(accountId: Annotated[str, Path(description="账号 ID")], payload: AdminAccountPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
     account = get_account_or_404(db, accountId)
@@ -1706,6 +1887,7 @@ def update_admin_account(accountId: Annotated[str, Path(description="账号 ID")
     if payload.avatar is not None:
         account.avatar = payload.avatar
     if payload.role is not None:
+        validate_role_exists(db, payload.role)
         account.role = payload.role
     if payload.permissions is not None:
         account.permissions = payload.permissions
