@@ -204,6 +204,26 @@ def test_admin_system_config_flow() -> None:
     menu_routes = client.get("/api/admin/menus/routes", headers=headers)
     assert menu_routes.status_code == 200
     assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
+    viewer = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "viewer_menu",
+            "nickname": "菜单观察员",
+            "avatar": "",
+            "role": "viewer",
+            "permissions": ["dashboard"],
+            "status": "active",
+            "email": "viewer-menu@example.com",
+            "phone": "13800000002",
+            "remark": "只看数据看板",
+        },
+        headers=headers,
+    )
+    viewer_token = client.post("/api/admin/auth/login", json={"username": "viewer_menu", "password": "123456"}).json()["data"]["token"]
+    viewer_routes = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {viewer_token}"})
+    viewer_names = [item["name"] for item in viewer_routes.json()["data"]["flatList"]]
+    assert viewer_names == ["Dashboard"]
+    assert client.delete(f"/api/admin/accounts/{viewer.json()['data']['account_id']}", headers=headers).status_code == 200
     menu = client.post(
         "/api/admin/menus",
         json={

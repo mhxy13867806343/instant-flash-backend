@@ -34,12 +34,12 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_user", "parent_id": None, "title": "用户管理", "path": "/user", "name": "UserList", "component": "views/user/List", "icon": "User", "type": "menu", "permission": "user", "sort": 20},
     {"menu_id": "menu_content", "parent_id": None, "title": "内容管理", "path": "/content", "name": "ContentList", "component": "views/content/List", "icon": "Document", "type": "menu", "permission": "content", "sort": 30},
     {"menu_id": "menu_comment", "parent_id": None, "title": "评论管理", "path": "/comment", "name": "CommentList", "component": "views/comment/List", "icon": "ChatLineSquare", "type": "menu", "permission": "comment", "sort": 40},
-    {"menu_id": "menu_simulator", "parent_id": None, "title": "App 仿真模拟", "path": "/simulator", "name": "AppSimulator", "component": "views/simulator/Index", "icon": "Smartphone", "type": "menu", "permission": "dashboard", "sort": 50},
+    {"menu_id": "menu_simulator", "parent_id": None, "title": "App 仿真模拟", "path": "/simulator", "name": "AppSimulator", "component": "views/simulator/Index", "icon": "Smartphone", "type": "menu", "permission": "simulator", "sort": 50},
     {"menu_id": "menu_account", "parent_id": None, "title": "账号管理", "path": "/account", "name": "AccountList", "component": "views/account/List", "icon": "UserFilled", "type": "menu", "permission": "account", "sort": 60},
     {"menu_id": "menu_announcement", "parent_id": None, "title": "公告管理", "path": "/announcement", "name": "Announcement", "component": None, "redirect": "/announcement/single", "icon": "Bell", "type": "catalog", "permission": "agreement", "sort": 70},
     {"menu_id": "menu_announcement_single", "parent_id": "menu_announcement", "title": "单公告", "path": "/announcement/single", "name": "AnnouncementSingle", "component": "views/announcement/Single", "icon": "Promotion", "type": "menu", "permission": "agreement", "sort": 10},
     {"menu_id": "menu_announcement_list", "parent_id": "menu_announcement", "title": "公告列表", "path": "/announcement/list", "name": "AnnouncementList", "component": "views/announcement/List", "icon": "List", "type": "menu", "permission": "agreement", "sort": 20},
-    {"menu_id": "menu_version", "parent_id": None, "title": "版本管理", "path": "/version", "name": "VersionList", "component": "views/version/List", "icon": "Upload", "type": "menu", "permission": "dashboard", "sort": 80},
+    {"menu_id": "menu_version", "parent_id": None, "title": "版本管理", "path": "/version", "name": "VersionList", "component": "views/version/List", "icon": "Upload", "type": "menu", "permission": "version", "sort": 80},
     {"menu_id": "menu_system", "parent_id": None, "title": "系统配置", "path": "/system", "name": "SystemConfig", "component": None, "redirect": "/tag", "icon": "Setting", "type": "catalog", "permission": None, "sort": 90},
     {"menu_id": "menu_tag", "parent_id": "menu_system", "title": "标签管理", "path": "/tag", "name": "TagList", "component": "views/tag/List", "icon": "PriceTag", "type": "menu", "permission": "tag", "sort": 10},
     {"menu_id": "menu_region", "parent_id": "menu_system", "title": "地区管理", "path": "/region", "name": "RegionList", "component": "views/region/List", "icon": "Location", "type": "menu", "permission": "region", "sort": 20},
@@ -543,7 +543,7 @@ def permitted_menu_tree_items(menus: list[AdminMenu], account: AdminAccount) -> 
         for node in nodes:
             children = prune(node.get("children", []))
             source = menu_by_id.get(node["menuId"])
-            if source and (can_access(source) or children):
+            if source and (children or (source.type != "catalog" and can_access(source))):
                 node["children"] = children
                 node["childCount"] = len(children)
                 result.append(node)
