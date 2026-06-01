@@ -224,6 +224,27 @@ def test_admin_system_config_flow() -> None:
     viewer_names = [item["name"] for item in viewer_routes.json()["data"]["flatList"]]
     assert viewer_names == ["Dashboard"]
     assert client.delete(f"/api/admin/accounts/{viewer.json()['data']['account_id']}", headers=headers).status_code == 200
+    agreement_viewer = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "agreement_viewer",
+            "nickname": "协议观察员",
+            "avatar": "",
+            "role": "viewer",
+            "permissions": ["dashboard", "agreement"],
+            "status": "active",
+            "email": "agreement-viewer@example.com",
+            "phone": "13800000003",
+            "remark": "看数据看板和协议",
+        },
+        headers=headers,
+    )
+    agreement_token = client.post("/api/admin/auth/login", json={"username": "agreement_viewer", "password": "123456"}).json()["data"]["token"]
+    agreement_routes = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {agreement_token}"})
+    agreement_names = [item["name"] for item in agreement_routes.json()["data"]["flatList"]]
+    assert agreement_names == ["Dashboard", "SystemConfig", "PrivacyAgreement", "UserAgreement"]
+    assert "Announcement" not in agreement_names
+    assert client.delete(f"/api/admin/accounts/{agreement_viewer.json()['data']['account_id']}", headers=headers).status_code == 200
     menu = client.post(
         "/api/admin/menus",
         json={
