@@ -17,7 +17,7 @@ from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.post import Post
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminRegion, AdminRole, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminPermission, AdminRegion, AdminRole, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -29,7 +29,24 @@ DEFAULT_AGREEMENTS = {
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "tag", "region", "dict", "menu", "message", "agreement"]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement"]
+DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
+    {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_content", "permission_key": "content", "label": "内容管理", "description": "动态内容审核与上下架", "sort": 30, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_comment", "permission_key": "comment", "label": "评论管理", "description": "评论列表与删除", "sort": 40, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_simulator", "permission_key": "simulator", "label": "App 仿真模拟", "description": "App 仿真模拟页面", "sort": 50, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_account", "permission_key": "account", "label": "账号管理", "description": "后台账号和角色配置", "sort": 60, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_announcement", "permission_key": "announcement", "label": "公告管理", "description": "单公告和公告列表", "sort": 70, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_version", "permission_key": "version", "label": "版本管理", "description": "App 版本管理", "sort": 80, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_system", "permission_key": "system", "label": "系统配置", "description": "系统配置目录权限", "sort": 90, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_tag", "permission_key": "tag", "label": "标签管理", "description": "动态标签配置", "sort": 100, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_region", "permission_key": "region", "label": "地区管理", "description": "地区和定位配置", "sort": 110, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_dict", "permission_key": "dict", "label": "字典管理", "description": "业务字典配置", "sort": 120, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_menu", "permission_key": "menu", "label": "菜单管理", "description": "后台动态菜单配置", "sort": 130, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_message", "permission_key": "message", "label": "系统消息", "description": "系统消息推送", "sort": 140, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_agreement", "permission_key": "agreement", "label": "协议管理", "description": "用户协议和隐私协议", "sort": 150, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
     {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "tag", "region", "message"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
@@ -141,6 +158,15 @@ class AdminRolePayload(BaseModel):
     sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
     status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
     remark: str | None = Field(default=None, title="备注", description="角色备注")
+
+
+class AdminPermissionPayload(BaseModel):
+    permissionKey: str = Field(min_length=1, max_length=64, title="权限标识", description="权限模块 key，例如 dashboard")
+    label: str = Field(min_length=1, max_length=64, title="权限名称", description="权限模块中文名称")
+    description: str | None = Field(default=None, max_length=256, title="权限说明", description="权限模块用途说明")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    remark: str | None = Field(default=None, title="备注", description="权限模块备注")
 
 
 class AdminMenuPayload(BaseModel):
@@ -510,6 +536,21 @@ def role_item(role: AdminRole) -> dict[str, Any]:
     }
 
 
+def permission_item(permission: AdminPermission) -> dict[str, Any]:
+    return {
+        "permissionId": permission.permission_id,
+        "permissionKey": permission.permission_key,
+        "label": permission.label,
+        "description": permission.description or "",
+        "sort": permission.sort,
+        "status": permission.status,
+        "isDefault": permission.is_default,
+        "remark": permission.remark or "",
+        "createdAt": format_time(permission.create_time),
+        "updatedAt": format_time(permission.update_time),
+    }
+
+
 def menu_item(menu: AdminMenu) -> dict[str, Any]:
     return {
         "menuId": menu.menu_id,
@@ -563,12 +604,16 @@ def menu_tree_items(menus: list[AdminMenu]) -> list[dict[str, Any]]:
     return build(None)
 
 
-def permitted_menu_tree_items(menus: list[AdminMenu], account: AdminAccount) -> list[dict[str, Any]]:
-    allowed_permissions = set(account.permissions or [])
+def permitted_menu_tree_items(menus: list[AdminMenu], account: AdminAccount, active_permissions: set[str]) -> list[dict[str, Any]]:
+    allowed_permissions = set(account.permissions or []) & active_permissions
     is_superadmin = account.role == "superadmin"
 
     def can_access(menu: AdminMenu) -> bool:
-        return is_superadmin or not menu.permission or menu.permission in allowed_permissions
+        if not menu.permission:
+            return True
+        if menu.permission not in active_permissions:
+            return False
+        return is_superadmin or menu.permission in allowed_permissions
 
     all_tree = menu_tree_items([menu for menu in menus if menu.status == "enabled" and menu.type != "button"])
 
@@ -690,6 +735,7 @@ def get_or_create_agreement(db: Session, agreement_type: str) -> AdminAgreement:
 )
 def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_db)]) -> dict[str, Any]:
     seed_accounts_if_empty(db)
+    seed_permissions_if_empty(db)
     account = db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none()
     if account is None or account.password != payload.password:
         raise fail(status.HTTP_400_BAD_REQUEST, "用户名或密码错误")
@@ -705,10 +751,20 @@ def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_d
             "username": account.username,
             "nickname": account.nickname,
             "role": account.role,
-            "permissions": account.permissions,
+            "permissions": account_effective_permissions(db, account),
         },
         "登录成功",
     )
+
+
+@router.post(
+    "/auth/logout",
+    response_model=AdminResponse,
+    summary="后台退出登录",
+    description="PC 后台退出登录接口。JWT 为无状态 Token，后端返回成功，前端清理本地 Token 即可。",
+)
+def admin_logout(_: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    return ok({}, "退出成功")
 
 
 @router.get(
@@ -1185,6 +1241,30 @@ def seed_accounts_if_empty(db: Session) -> None:
     db.commit()
 
 
+def seed_permissions_if_empty(db: Session) -> None:
+    existing_ids = {row[0] for row in db.query(AdminPermission.permission_id).all()}
+    existing_keys = {row[0] for row in db.query(AdminPermission.permission_key).all()}
+    new_permissions = []
+    for item in DEFAULT_ADMIN_PERMISSION_MODULES:
+        if item["permission_id"] in existing_ids or item["permission_key"] in existing_keys:
+            continue
+        new_permissions.append(
+            AdminPermission(
+                permission_id=item["permission_id"],
+                permission_key=item["permission_key"],
+                label=item["label"],
+                description=item.get("description"),
+                sort=item.get("sort", 0),
+                status=item.get("status", "enabled"),
+                is_default=item.get("is_default", False),
+                remark=item.get("remark"),
+            )
+        )
+    if new_permissions:
+        db.add_all(new_permissions)
+        db.commit()
+
+
 def seed_roles_if_empty(db: Session) -> None:
     existing_ids = {row[0] for row in db.query(AdminRole.role_id).all()}
     existing_keys = {row[0] for row in db.query(AdminRole.role_key).all()}
@@ -1208,6 +1288,27 @@ def seed_roles_if_empty(db: Session) -> None:
     if new_roles:
         db.add_all(new_roles)
         db.commit()
+
+
+def active_permission_keys(db: Session) -> set[str]:
+    seed_permissions_if_empty(db)
+    return {row[0] for row in db.query(AdminPermission.permission_key).filter(AdminPermission.status == "enabled").all()}
+
+
+def account_effective_permissions(db: Session, account: AdminAccount) -> list[str]:
+    active_keys = active_permission_keys(db)
+    if account.role == "superadmin":
+        return [item["permission_key"] for item in DEFAULT_ADMIN_PERMISSION_MODULES if item["permission_key"] in active_keys]
+    return [key for key in account.permissions or [] if key in active_keys]
+
+
+def validate_permission_keys(db: Session, permissions: list[str] | None) -> None:
+    if not permissions:
+        return
+    enabled_keys = active_permission_keys(db)
+    missing_keys = [key for key in permissions if key not in enabled_keys]
+    if missing_keys:
+        raise fail(status.HTTP_400_BAD_REQUEST, f"权限模块不存在或已停用：{', '.join(missing_keys)}")
 
 
 def seed_menus_if_empty(db: Session) -> None:
@@ -1289,6 +1390,19 @@ def get_role_or_404(db: Session, role_id: str) -> AdminRole:
     if role is None:
         raise fail(status.HTTP_404_NOT_FOUND, "角色未找到")
     return role
+
+
+def get_permission_or_404(db: Session, permission_id: str) -> AdminPermission:
+    permission = db.query(AdminPermission).filter(AdminPermission.permission_id == permission_id).one_or_none()
+    if permission is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "权限模块未找到")
+    return permission
+
+
+def permission_key_in_use(db: Session, permission_key: str) -> bool:
+    account_permissions = [row[0] or [] for row in db.query(AdminAccount.permissions).all()]
+    role_permissions = [row[0] or [] for row in db.query(AdminRole.permissions).all()]
+    return any(permission_key in keys for keys in [*account_permissions, *role_permissions])
 
 
 def validate_role_exists(db: Session, role_key: str | None) -> None:
@@ -1635,10 +1749,11 @@ def current_admin_menu_tree(
     admin_subject: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
     seed_menus_if_empty(db)
+    active_keys = active_permission_keys(db)
     account = get_current_admin_account(db, admin_subject)
     menus = db.query(AdminMenu).order_by(AdminMenu.sort.asc(), AdminMenu.create_time.asc()).all()
-    tree = permitted_menu_tree_items(menus, account)
-    return ok({"list": tree, "total": len(flatten_menu_tree(tree)), "permissions": account.permissions or [], "role": account.role})
+    tree = permitted_menu_tree_items(menus, account, active_keys)
+    return ok({"list": tree, "total": len(flatten_menu_tree(tree)), "permissions": account_effective_permissions(db, account), "role": account.role})
 
 
 @router.get("/menus/routes", response_model=AdminResponse, summary="动态路由", description="根据当前登录账号权限返回前端动态路由和菜单树。")
@@ -1647,16 +1762,17 @@ def current_admin_menu_routes(
     admin_subject: Annotated[str, Depends(get_admin_subject)],
 ) -> dict[str, Any]:
     seed_menus_if_empty(db)
+    active_keys = active_permission_keys(db)
     account = get_current_admin_account(db, admin_subject)
     menus = db.query(AdminMenu).order_by(AdminMenu.sort.asc(), AdminMenu.create_time.asc()).all()
-    tree = permitted_menu_tree_items(menus, account)
+    tree = permitted_menu_tree_items(menus, account, active_keys)
     flat_list = flatten_menu_tree(tree)
     return ok(
         {
             "list": tree,
             "routes": tree,
             "flatList": flat_list,
-            "permissions": account.permissions or [],
+            "permissions": account_effective_permissions(db, account),
             "role": account.role,
             "username": account.username,
         }
@@ -1666,6 +1782,7 @@ def current_admin_menu_routes(
 @router.post("/menus", response_model=AdminResponse, summary="新增菜单", description="新增后台动态菜单或动态路由配置。")
 def create_admin_menu(payload: AdminMenuPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
     seed_menus_if_empty(db)
+    validate_permission_keys(db, [payload.permission] if payload.permission else None)
     validate_menu_parent(db, payload.parentId)
     validate_menu_unique(db, payload.name, payload.path)
     menu = AdminMenu(
@@ -1702,6 +1819,7 @@ def get_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")], 
 @router.put("/menus/{menuId}", response_model=AdminResponse, summary="修改菜单", description="修改后台动态菜单或动态路由配置。")
 def update_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")], payload: AdminMenuPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
     seed_menus_if_empty(db)
+    validate_permission_keys(db, [payload.permission] if payload.permission else None)
     menu = get_menu_or_404(db, menuId)
     validate_menu_parent(db, payload.parentId, self_id=menuId)
     validate_menu_unique(db, payload.name, payload.path, self_id=menuId)
@@ -1738,6 +1856,90 @@ def delete_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")
     return ok(None, "菜单删除成功")
 
 
+@router.get("/permissions", response_model=AdminResponse, summary="权限模块列表", description="账号管理 - 权限模块列表；账号勾选后才会展示对应菜单。")
+def list_admin_permissions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="权限名称或 key 关键词")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled/disabled")] = None,
+    onlyActive: Annotated[bool, Query(description="是否只返回启用权限，账号新增/编辑弹窗建议传 true")] = False,
+) -> dict[str, Any]:
+    seed_permissions_if_empty(db)
+    query = db.query(AdminPermission)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter((AdminPermission.label.ilike(like_keyword)) | (AdminPermission.permission_key.ilike(like_keyword)))
+    if status_filter:
+        query = query.filter(AdminPermission.status == status_filter)
+    if onlyActive:
+        query = query.filter(AdminPermission.status == "enabled")
+    permissions = query.order_by(AdminPermission.sort.asc(), AdminPermission.create_time.asc()).all()
+    return ok({"list": [permission_item(permission) for permission in permissions], "total": len(permissions)})
+
+
+@router.post("/permissions", response_model=AdminResponse, summary="新增权限模块", description="新增账号可勾选的权限模块。")
+def create_admin_permission(payload: AdminPermissionPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_permissions_if_empty(db)
+    if db.query(AdminPermission).filter(AdminPermission.permission_key == payload.permissionKey).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "权限标识已存在")
+    permission = AdminPermission(
+        permission_id=new_business_id("perm"),
+        permission_key=payload.permissionKey,
+        label=payload.label,
+        description=payload.description,
+        sort=payload.sort,
+        status=payload.status,
+        is_default=False,
+        remark=payload.remark,
+    )
+    db.add(permission)
+    db.commit()
+    db.refresh(permission)
+    return ok(permission_item(permission), "权限模块创建成功")
+
+
+@router.get("/permissions/{permissionId}", response_model=AdminResponse, summary="权限模块详情", description="根据权限模块 ID 查询详情。")
+def get_admin_permission(permissionId: Annotated[str, Path(description="权限模块 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_permissions_if_empty(db)
+    return ok(permission_item(get_permission_or_404(db, permissionId)))
+
+
+@router.put("/permissions/{permissionId}", response_model=AdminResponse, summary="修改权限模块", description="修改权限模块。系统默认权限允许改名称/状态，但不允许改标识。")
+def update_admin_permission(permissionId: Annotated[str, Path(description="权限模块 ID")], payload: AdminPermissionPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_permissions_if_empty(db)
+    permission = get_permission_or_404(db, permissionId)
+    if permission.is_default and payload.permissionKey != permission.permission_key:
+        raise fail(status.HTTP_400_BAD_REQUEST, "系统默认权限标识不能修改")
+    if payload.permissionKey != permission.permission_key and permission_key_in_use(db, permission.permission_key):
+        raise fail(status.HTTP_400_BAD_REQUEST, "权限正在使用中，不能修改标识")
+    duplicate = db.query(AdminPermission).filter(AdminPermission.permission_key == payload.permissionKey, AdminPermission.permission_id != permissionId).one_or_none()
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "权限标识已存在")
+    permission.permission_key = payload.permissionKey
+    permission.label = payload.label
+    permission.description = payload.description
+    permission.sort = payload.sort
+    permission.status = payload.status
+    permission.remark = payload.remark
+    permission.last_time = utc_now()
+    db.commit()
+    db.refresh(permission)
+    return ok(permission_item(permission), "权限模块更新成功")
+
+
+@router.delete("/permissions/{permissionId}", response_model=AdminResponse, summary="删除权限模块", description="删除自定义权限模块；系统默认权限不允许删除。")
+def delete_admin_permission(permissionId: Annotated[str, Path(description="权限模块 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_permissions_if_empty(db)
+    permission = get_permission_or_404(db, permissionId)
+    if permission.is_default:
+        raise fail(status.HTTP_400_BAD_REQUEST, "系统默认权限不能删除")
+    if permission_key_in_use(db, permission.permission_key):
+        raise fail(status.HTTP_400_BAD_REQUEST, "存在角色或账号正在使用该权限，不能删除")
+    db.delete(permission)
+    db.commit()
+    return ok(None, "权限模块删除成功")
+
+
 @router.get("/roles", response_model=AdminResponse, summary="后台角色列表", description="账号管理 - 角色列表，默认包含超级管理员、管理员、运营员、观察员。")
 def list_admin_roles(
     db: Annotated[Session, Depends(get_db)],
@@ -1758,6 +1960,7 @@ def list_admin_roles(
 @router.post("/roles", response_model=AdminResponse, summary="新增后台角色", description="新增后台角色，默认角色不可删除，自定义角色可删除。")
 def create_admin_role(payload: AdminRolePayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
     seed_roles_if_empty(db)
+    validate_permission_keys(db, payload.permissions)
     if db.query(AdminRole).filter(AdminRole.role_key == payload.roleKey).one_or_none():
         raise fail(status.HTTP_400_BAD_REQUEST, "角色标识已存在")
     role = AdminRole(
@@ -1786,6 +1989,7 @@ def get_admin_role(roleId: Annotated[str, Path(description="角色 ID")], db: An
 @router.put("/roles/{roleId}", response_model=AdminResponse, summary="修改后台角色", description="修改后台角色，默认角色也允许修改，但不允许删除。")
 def update_admin_role(roleId: Annotated[str, Path(description="角色 ID")], payload: AdminRolePayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
     seed_roles_if_empty(db)
+    validate_permission_keys(db, payload.permissions)
     role = get_role_or_404(db, roleId)
     duplicate = db.query(AdminRole).filter(AdminRole.role_key == payload.roleKey, AdminRole.role_id != roleId).one_or_none()
     if duplicate is not None:
@@ -1849,6 +2053,7 @@ def create_admin_account(payload: AdminAccountPayload, db: Annotated[Session, De
     if db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none():
         raise fail(status.HTTP_400_BAD_REQUEST, "账号已存在")
     validate_role_exists(db, payload.role or "admin")
+    validate_permission_keys(db, payload.permissions)
     account = AdminAccount(
         account_id=new_business_id("acc"),
         username=payload.username,
@@ -1890,6 +2095,7 @@ def update_admin_account(accountId: Annotated[str, Path(description="账号 ID")
         validate_role_exists(db, payload.role)
         account.role = payload.role
     if payload.permissions is not None:
+        validate_permission_keys(db, payload.permissions)
         account.permissions = payload.permissions
     if payload.status is not None:
         account.status = payload.status

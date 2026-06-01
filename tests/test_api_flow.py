@@ -88,6 +88,10 @@ def test_content_flow() -> None:
     assert mine.status_code == 200
     assert mine.json()["total"] == 1
 
+    logout = client.post("/api/auth/logout", headers=headers)
+    assert logout.status_code == 200
+    assert logout.json() == {"code": 200, "message": "退出成功", "data": {}}
+
     comments = client.get(f"/api/posts/{post_id}/comments?page=1&pageSize=10")
     assert comments.status_code == 200
     assert comments.json()[0]["commentId"] == comment.json()["commentId"]
@@ -196,6 +200,7 @@ def test_admin_system_config_flow() -> None:
 
     login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
     headers = {"Authorization": f"Bearer {login.json()['data']['token']}"}
+    assert client.post("/api/admin/auth/logout", headers=headers).json() == {"code": 200, "message": "退出成功", "data": {}}
 
     menu_tree = client.get("/api/admin/menus", headers=headers)
     assert menu_tree.status_code == 200
@@ -274,6 +279,85 @@ def test_admin_system_config_flow() -> None:
         headers=headers,
     ).json()["data"]["title"] == "测试菜单2"
     assert client.delete(f"/api/admin/menus/{menu_id}", headers=headers).status_code == 200
+
+    permission_list = client.get("/api/admin/permissions", params={"onlyActive": True}, headers=headers)
+    assert permission_list.status_code == 200
+    assert permission_list.json()["data"]["total"] >= 15
+    assert {item["permissionKey"] for item in permission_list.json()["data"]["list"]} >= {"dashboard", "system", "agreement"}
+    default_dashboard_permission = next(item for item in permission_list.json()["data"]["list"] if item["permissionKey"] == "dashboard")
+    default_permission_delete = client.delete(f"/api/admin/permissions/{default_dashboard_permission['permissionId']}", headers=headers)
+    assert default_permission_delete.status_code == 400
+    assert default_permission_delete.json()["message"] == "系统默认权限不能删除"
+    custom_permission = client.post(
+        "/api/admin/permissions",
+        json={
+            "permissionKey": "audit_panel",
+            "label": "审计面板",
+            "description": "测试动态权限",
+            "sort": 300,
+            "status": "enabled",
+            "remark": "测试权限",
+        },
+        headers=headers,
+    )
+    assert custom_permission.status_code == 200
+    custom_permission_id = custom_permission.json()["data"]["permissionId"]
+    assert client.get(f"/api/admin/permissions/{custom_permission_id}", headers=headers).json()["data"]["permissionKey"] == "audit_panel"
+    assert client.put(
+        f"/api/admin/permissions/{custom_permission_id}",
+        json={
+            "permissionKey": "audit_panel",
+            "label": "审计面板2",
+            "description": "测试动态权限更新",
+            "sort": 301,
+            "status": "enabled",
+            "remark": "测试权限更新",
+        },
+        headers=headers,
+    ).json()["data"]["label"] == "审计面板2"
+    audit_menu = client.post(
+        "/api/admin/menus",
+        json={
+            "title": "审计面板",
+            "path": "/audit-panel",
+            "name": "AuditPanel",
+            "component": "views/audit/Panel",
+            "icon": "View",
+            "type": "menu",
+            "permission": "audit_panel",
+            "sort": 300,
+            "status": "enabled",
+            "visible": True,
+            "keepAlive": False,
+            "affix": False,
+        },
+        headers=headers,
+    )
+    assert audit_menu.status_code == 200
+    audit_menu_id = audit_menu.json()["data"]["menuId"]
+    audit_account = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "audit_panel_user",
+            "nickname": "审计面板用户",
+            "avatar": "",
+            "role": "viewer",
+            "permissions": ["dashboard", "audit_panel"],
+            "status": "active",
+            "email": "audit-panel@example.com",
+            "phone": "13800000005",
+            "remark": "测试权限显示隐藏",
+        },
+        headers=headers,
+    )
+    audit_token = client.post("/api/admin/auth/login", json={"username": "audit_panel_user", "password": "123456"}).json()["data"]["token"]
+    audit_routes = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {audit_token}"})
+    assert any(item["name"] == "AuditPanel" for item in audit_routes.json()["data"]["flatList"])
+    assert client.put(f"/api/admin/accounts/{audit_account.json()['data']['accountId']}", json={"permissions": ["dashboard"]}, headers=headers).status_code == 200
+    audit_routes_after = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {audit_token}"})
+    assert all(item["name"] != "AuditPanel" for item in audit_routes_after.json()["data"]["flatList"])
+    assert client.delete(f"/api/admin/accounts/{audit_account.json()['data']['accountId']}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/menus/{audit_menu_id}", headers=headers).status_code == 200
 
     roles = client.get("/api/admin/roles", headers=headers)
     assert roles.status_code == 200
@@ -470,6 +554,7 @@ def test_admin_system_config_flow() -> None:
     assert client.post(f"/api/admin/accounts/{account_id}/reset-password", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/accounts/{account_id}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/roles/{custom_role_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/permissions/{custom_permission_id}", headers=headers).status_code == 200
     assert client.post("/api/admin/versions/batch-delete", json={"ids": [version_id]}, headers=headers).status_code == 200
     assert client.post("/api/admin/announcements/batch-delete", json={"ids": [announcement_id]}, headers=headers).status_code == 200
 

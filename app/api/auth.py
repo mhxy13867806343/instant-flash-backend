@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
 from app.core.security import create_access_token
 from app.db.session import get_db
@@ -18,6 +19,15 @@ def fail(status_code: int, message: str) -> HTTPException:
         status_code=status_code,
         detail={"code": status_code, "message": message, "data": {}},
     )
+
+
+@router.post(
+    "/logout",
+    summary="用户端退出登录",
+    description="用户端退出登录接口。JWT 为无状态 Token，后端返回成功，前端清理本地 Token 即可。",
+)
+def user_logout(_: User = Depends(get_current_user_required)) -> dict[str, object]:
+    return {"code": 200, "message": "退出成功", "data": {}}
 
 
 @router.post(

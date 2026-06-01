@@ -125,6 +125,20 @@ class AdminRole(TimestampMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text)
 
 
+class AdminPermission(TimestampMixin, Base):
+    __tablename__ = "admin_permissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    permission_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    permission_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(256))
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
 class AdminMenu(TimestampMixin, Base):
     __tablename__ = "admin_menus"
 
