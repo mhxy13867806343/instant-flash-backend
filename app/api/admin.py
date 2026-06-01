@@ -17,7 +17,7 @@ from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.post import Post
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminRegion, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminRegion, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -29,6 +29,25 @@ DEFAULT_AGREEMENTS = {
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
+DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
+    {"menu_id": "menu_dashboard", "parent_id": None, "title": "数据看板", "path": "/dashboard", "name": "Dashboard", "component": "views/dashboard/Index", "icon": "Odometer", "type": "menu", "permission": "dashboard", "sort": 10, "affix": True, "remark": "后台首页数据看板"},
+    {"menu_id": "menu_user", "parent_id": None, "title": "用户管理", "path": "/user", "name": "UserList", "component": "views/user/List", "icon": "User", "type": "menu", "permission": "user", "sort": 20},
+    {"menu_id": "menu_content", "parent_id": None, "title": "内容管理", "path": "/content", "name": "ContentList", "component": "views/content/List", "icon": "Document", "type": "menu", "permission": "content", "sort": 30},
+    {"menu_id": "menu_comment", "parent_id": None, "title": "评论管理", "path": "/comment", "name": "CommentList", "component": "views/comment/List", "icon": "ChatLineSquare", "type": "menu", "permission": "comment", "sort": 40},
+    {"menu_id": "menu_simulator", "parent_id": None, "title": "App 仿真模拟", "path": "/simulator", "name": "AppSimulator", "component": "views/simulator/Index", "icon": "Smartphone", "type": "menu", "permission": "dashboard", "sort": 50},
+    {"menu_id": "menu_account", "parent_id": None, "title": "账号管理", "path": "/account", "name": "AccountList", "component": "views/account/List", "icon": "UserFilled", "type": "menu", "permission": "account", "sort": 60},
+    {"menu_id": "menu_announcement", "parent_id": None, "title": "公告管理", "path": "/announcement", "name": "Announcement", "component": None, "redirect": "/announcement/single", "icon": "Bell", "type": "catalog", "permission": "agreement", "sort": 70},
+    {"menu_id": "menu_announcement_single", "parent_id": "menu_announcement", "title": "单公告", "path": "/announcement/single", "name": "AnnouncementSingle", "component": "views/announcement/Single", "icon": "Promotion", "type": "menu", "permission": "agreement", "sort": 10},
+    {"menu_id": "menu_announcement_list", "parent_id": "menu_announcement", "title": "公告列表", "path": "/announcement/list", "name": "AnnouncementList", "component": "views/announcement/List", "icon": "List", "type": "menu", "permission": "agreement", "sort": 20},
+    {"menu_id": "menu_version", "parent_id": None, "title": "版本管理", "path": "/version", "name": "VersionList", "component": "views/version/List", "icon": "Upload", "type": "menu", "permission": "dashboard", "sort": 80},
+    {"menu_id": "menu_system", "parent_id": None, "title": "系统配置", "path": "/system", "name": "SystemConfig", "component": None, "redirect": "/tag", "icon": "Setting", "type": "catalog", "permission": None, "sort": 90},
+    {"menu_id": "menu_tag", "parent_id": "menu_system", "title": "标签管理", "path": "/tag", "name": "TagList", "component": "views/tag/List", "icon": "PriceTag", "type": "menu", "permission": "tag", "sort": 10},
+    {"menu_id": "menu_region", "parent_id": "menu_system", "title": "地区管理", "path": "/region", "name": "RegionList", "component": "views/region/List", "icon": "Location", "type": "menu", "permission": "region", "sort": 20},
+    {"menu_id": "menu_dict", "parent_id": "menu_system", "title": "字典管理", "path": "/dict", "name": "DictList", "component": "views/dict/List", "icon": "Memo", "type": "menu", "permission": "dict", "sort": 30},
+    {"menu_id": "menu_message", "parent_id": "menu_system", "title": "系统消息", "path": "/message", "name": "SysMessage", "component": "views/message/List", "icon": "Message", "type": "menu", "permission": "message", "sort": 40},
+    {"menu_id": "menu_privacy", "parent_id": "menu_system", "title": "隐私协议", "path": "/agreement/privacy", "name": "PrivacyAgreement", "component": "views/agreement/Privacy", "icon": "Lock", "type": "menu", "permission": "agreement", "sort": 50},
+    {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 60},
+]
 
 
 class AdminLoginRequest(BaseModel):
@@ -104,6 +123,25 @@ class AdminAccountPayload(BaseModel):
     email: str | None = Field(default=None, max_length=128, title="邮箱", description="管理员邮箱")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="管理员手机号")
     remark: str | None = Field(default=None, title="备注", description="账号备注")
+
+
+class AdminMenuPayload(BaseModel):
+    parentId: str | None = Field(default=None, max_length=64, title="上级菜单 ID", description="父级菜单业务 ID；顶级菜单为空")
+    title: str = Field(min_length=1, max_length=64, title="菜单标题", description="菜单展示中文名称")
+    path: str = Field(min_length=1, max_length=128, title="路由路径", description="前端路由 path，例如 /dashboard")
+    name: str = Field(min_length=1, max_length=64, title="路由名称", description="前端路由 name，必须唯一")
+    component: str | None = Field(default=None, max_length=128, title="组件路径", description="前端组件路径，例如 views/dashboard/Index")
+    redirect: str | None = Field(default=None, max_length=128, title="重定向地址", description="父级菜单默认跳转地址")
+    icon: str | None = Field(default=None, max_length=64, title="图标", description="Element Plus 图标组件名")
+    type: str = Field(default="menu", pattern="^(catalog|menu|button|link)$", title="菜单类型", description="catalog 目录，menu 菜单，button 按钮，link 外链")
+    permission: str | None = Field(default=None, max_length=64, title="权限标识", description="账号权限模块，例如 dashboard/user/content")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    visible: bool = Field(default=True, title="是否显示", description="是否在侧边菜单显示")
+    keepAlive: bool = Field(default=False, title="是否缓存", description="前端 keepAlive 元信息")
+    affix: bool = Field(default=False, title="是否固定页签", description="前端 affix 元信息")
+    externalLink: str | None = Field(default=None, max_length=512, title="外链地址", description="外链菜单地址")
+    remark: str | None = Field(default=None, title="备注", description="菜单备注")
 
 
 class BatchIdsPayload(BaseModel):
@@ -435,6 +473,91 @@ def account_item(account: AdminAccount) -> dict[str, Any]:
         "lastLogin": account.last_login or format_time(account.last_time),
         "remark": account.remark or "",
     }
+
+
+def menu_item(menu: AdminMenu) -> dict[str, Any]:
+    return {
+        "menuId": menu.menu_id,
+        "parentId": menu.parent_id,
+        "title": menu.title,
+        "path": menu.path,
+        "name": menu.name,
+        "component": menu.component or "",
+        "redirect": menu.redirect or "",
+        "icon": menu.icon or "",
+        "type": menu.type,
+        "permission": menu.permission or "",
+        "sort": menu.sort,
+        "status": menu.status,
+        "visible": menu.visible,
+        "keepAlive": menu.keep_alive,
+        "affix": menu.affix,
+        "externalLink": menu.external_link or "",
+        "remark": menu.remark or "",
+        "meta": {
+            "title": menu.title,
+            "icon": menu.icon or "",
+            "permission": menu.permission or "",
+            "keepAlive": menu.keep_alive,
+            "affix": menu.affix,
+            "hidden": not menu.visible,
+        },
+        "createdAt": format_time(menu.create_time),
+        "updatedAt": format_time(menu.update_time),
+    }
+
+
+def menu_tree_items(menus: list[AdminMenu]) -> list[dict[str, Any]]:
+    ids = {menu.menu_id for menu in menus}
+    children_by_parent: dict[str | None, list[AdminMenu]] = {}
+    for menu in menus:
+        parent_id = menu.parent_id if menu.parent_id in ids else None
+        children_by_parent.setdefault(parent_id, []).append(menu)
+    for children in children_by_parent.values():
+        children.sort(key=lambda item: (item.sort, item.create_time))
+
+    def build(parent_id: str | None) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for menu in children_by_parent.get(parent_id, []):
+            item = menu_item(menu)
+            item["children"] = build(menu.menu_id)
+            item["childCount"] = len(item["children"])
+            result.append(item)
+        return result
+
+    return build(None)
+
+
+def permitted_menu_tree_items(menus: list[AdminMenu], account: AdminAccount) -> list[dict[str, Any]]:
+    allowed_permissions = set(account.permissions or [])
+    is_superadmin = account.role == "superadmin"
+
+    def can_access(menu: AdminMenu) -> bool:
+        return is_superadmin or not menu.permission or menu.permission in allowed_permissions
+
+    all_tree = menu_tree_items([menu for menu in menus if menu.status == "enabled" and menu.type != "button"])
+
+    def prune(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        menu_by_id = {menu.menu_id: menu for menu in menus}
+        for node in nodes:
+            children = prune(node.get("children", []))
+            source = menu_by_id.get(node["menuId"])
+            if source and (can_access(source) or children):
+                node["children"] = children
+                node["childCount"] = len(children)
+                result.append(node)
+        return result
+
+    return prune(all_tree)
+
+
+def flatten_menu_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for node in nodes:
+        result.append({key: value for key, value in node.items() if key != "children"})
+        result.extend(flatten_menu_tree(node.get("children", [])))
+    return result
 
 
 def notification_item(message: Message) -> dict[str, Any]:
@@ -1028,6 +1151,38 @@ def seed_accounts_if_empty(db: Session) -> None:
     db.commit()
 
 
+def seed_menus_if_empty(db: Session) -> None:
+    existing_ids = {row[0] for row in db.query(AdminMenu.menu_id).all()}
+    new_menus = []
+    for item in DEFAULT_ADMIN_MENUS:
+        if item["menu_id"] in existing_ids:
+            continue
+        new_menus.append(
+            AdminMenu(
+                menu_id=item["menu_id"],
+                parent_id=item.get("parent_id"),
+                title=item["title"],
+                path=item["path"],
+                name=item["name"],
+                component=item.get("component"),
+                redirect=item.get("redirect"),
+                icon=item.get("icon"),
+                type=item.get("type", "menu"),
+                permission=item.get("permission"),
+                sort=item.get("sort", 0),
+                status=item.get("status", "enabled"),
+                visible=item.get("visible", True),
+                keep_alive=item.get("keep_alive", False),
+                affix=item.get("affix", False),
+                external_link=item.get("external_link"),
+                remark=item.get("remark"),
+            )
+        )
+    if new_menus:
+        db.add_all(new_menus)
+        db.commit()
+
+
 def get_announcement_or_404(db: Session, announcement_id: str) -> AdminAnnouncement:
     announcement = db.query(AdminAnnouncement).filter(AdminAnnouncement.announcement_id == announcement_id).one_or_none()
     if announcement is None:
@@ -1068,6 +1223,48 @@ def get_account_or_404(db: Session, account_id: str) -> AdminAccount:
     if account is None:
         raise fail(status.HTTP_404_NOT_FOUND, "账号未找到")
     return account
+
+
+def get_menu_or_404(db: Session, menu_id: str) -> AdminMenu:
+    menu = db.query(AdminMenu).filter(AdminMenu.menu_id == menu_id).one_or_none()
+    if menu is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "菜单未找到")
+    return menu
+
+
+def get_current_admin_account(db: Session, username: str) -> AdminAccount:
+    seed_accounts_if_empty(db)
+    account = db.query(AdminAccount).filter(AdminAccount.username == username).one_or_none()
+    if account is None:
+        raise fail(status.HTTP_401_UNAUTHORIZED, "登录账号不存在，请重新登录")
+    if account.status != "active":
+        raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
+    return account
+
+
+def validate_menu_parent(db: Session, parent_id: str | None, self_id: str | None = None) -> None:
+    if not parent_id:
+        return
+    if parent_id == self_id:
+        raise fail(status.HTTP_400_BAD_REQUEST, "上级菜单不能选择自己")
+    parent = get_menu_or_404(db, parent_id)
+    cursor = parent
+    while cursor.parent_id:
+        if cursor.parent_id == self_id:
+            raise fail(status.HTTP_400_BAD_REQUEST, "上级菜单不能选择自己的下级")
+        cursor = get_menu_or_404(db, cursor.parent_id)
+
+
+def validate_menu_unique(db: Session, name: str, path: str, self_id: str | None = None) -> None:
+    name_query = db.query(AdminMenu).filter(AdminMenu.name == name)
+    path_query = db.query(AdminMenu).filter(AdminMenu.path == path)
+    if self_id:
+        name_query = name_query.filter(AdminMenu.menu_id != self_id)
+        path_query = path_query.filter(AdminMenu.menu_id != self_id)
+    if name_query.one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "路由名称已存在")
+    if path_query.one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "路由路径已存在")
 
 
 @router.get("/announcements", response_model=AdminResponse, summary="公告列表", description="公告管理列表，支持关键词、类型、状态筛选。")
@@ -1318,6 +1515,150 @@ def batch_delete_versions(payload: BatchIdsPayload, db: Annotated[Session, Depen
     count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).delete(synchronize_session=False)
     db.commit()
     return ok({"count": count}, "批量删除成功")
+
+
+@router.get("/menus", response_model=AdminResponse, summary="菜单列表", description="后台动态菜单列表，默认返回树形结构。")
+def list_admin_menus(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="菜单标题、路径或路由名称关键词")] = None,
+    parentId: Annotated[str | None, Query(description="上级菜单 ID；传入后只查询直接下级")] = None,
+    type: Annotated[str | None, Query(description="菜单类型：catalog/menu/button/link")] = None,
+    permission: Annotated[str | None, Query(description="权限标识")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled/disabled")] = None,
+    visible: Annotated[bool | None, Query(description="是否在菜单显示")] = None,
+    tree: Annotated[bool, Query(description="是否返回树形 children")] = True,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=1000, description="每页数量")] = 1000,
+) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    query = db.query(AdminMenu)
+    if keyword:
+        query = query.filter((AdminMenu.title.ilike(f"%{keyword}%")) | (AdminMenu.path.ilike(f"%{keyword}%")) | (AdminMenu.name.ilike(f"%{keyword}%")))
+    if parentId is not None:
+        query = query.filter(AdminMenu.parent_id == parentId)
+    if type:
+        query = query.filter(AdminMenu.type == type)
+    if permission:
+        query = query.filter(AdminMenu.permission == permission)
+    if status_filter:
+        query = query.filter(AdminMenu.status == status_filter)
+    if visible is not None:
+        query = query.filter(AdminMenu.visible == visible)
+    total = query.count()
+    menus = query.order_by(AdminMenu.sort.asc(), AdminMenu.create_time.asc()).offset((page - 1) * limit).limit(limit).all()
+    if tree and parentId is None:
+        return ok({"list": menu_tree_items(menus), "total": total})
+    return ok({"list": [menu_item(menu) for menu in menus], "total": total})
+
+
+@router.get("/menus/tree", response_model=AdminResponse, summary="当前账号菜单树", description="根据当前登录账号权限返回可显示的动态菜单树。")
+def current_admin_menu_tree(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    account = get_current_admin_account(db, admin_subject)
+    menus = db.query(AdminMenu).order_by(AdminMenu.sort.asc(), AdminMenu.create_time.asc()).all()
+    tree = permitted_menu_tree_items(menus, account)
+    return ok({"list": tree, "total": len(flatten_menu_tree(tree)), "permissions": account.permissions or [], "role": account.role})
+
+
+@router.get("/menus/routes", response_model=AdminResponse, summary="动态路由", description="根据当前登录账号权限返回前端动态路由和菜单树。")
+def current_admin_menu_routes(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    account = get_current_admin_account(db, admin_subject)
+    menus = db.query(AdminMenu).order_by(AdminMenu.sort.asc(), AdminMenu.create_time.asc()).all()
+    tree = permitted_menu_tree_items(menus, account)
+    flat_list = flatten_menu_tree(tree)
+    return ok(
+        {
+            "list": tree,
+            "routes": tree,
+            "flatList": flat_list,
+            "permissions": account.permissions or [],
+            "role": account.role,
+            "username": account.username,
+        }
+    )
+
+
+@router.post("/menus", response_model=AdminResponse, summary="新增菜单", description="新增后台动态菜单或动态路由配置。")
+def create_admin_menu(payload: AdminMenuPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    validate_menu_parent(db, payload.parentId)
+    validate_menu_unique(db, payload.name, payload.path)
+    menu = AdminMenu(
+        menu_id=new_business_id("menu"),
+        parent_id=payload.parentId,
+        title=payload.title,
+        path=payload.path,
+        name=payload.name,
+        component=payload.component,
+        redirect=payload.redirect,
+        icon=payload.icon,
+        type=payload.type,
+        permission=payload.permission,
+        sort=payload.sort,
+        status=payload.status,
+        visible=payload.visible,
+        keep_alive=payload.keepAlive,
+        affix=payload.affix,
+        external_link=payload.externalLink,
+        remark=payload.remark,
+    )
+    db.add(menu)
+    db.commit()
+    db.refresh(menu)
+    return ok(menu_item(menu), "菜单创建成功")
+
+
+@router.get("/menus/{menuId}", response_model=AdminResponse, summary="菜单详情", description="根据菜单 ID 查询菜单详情。")
+def get_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    return ok(menu_item(get_menu_or_404(db, menuId)))
+
+
+@router.put("/menus/{menuId}", response_model=AdminResponse, summary="修改菜单", description="修改后台动态菜单或动态路由配置。")
+def update_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")], payload: AdminMenuPayload, db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    menu = get_menu_or_404(db, menuId)
+    validate_menu_parent(db, payload.parentId, self_id=menuId)
+    validate_menu_unique(db, payload.name, payload.path, self_id=menuId)
+    menu.parent_id = payload.parentId
+    menu.title = payload.title
+    menu.path = payload.path
+    menu.name = payload.name
+    menu.component = payload.component
+    menu.redirect = payload.redirect
+    menu.icon = payload.icon
+    menu.type = payload.type
+    menu.permission = payload.permission
+    menu.sort = payload.sort
+    menu.status = payload.status
+    menu.visible = payload.visible
+    menu.keep_alive = payload.keepAlive
+    menu.affix = payload.affix
+    menu.external_link = payload.externalLink
+    menu.remark = payload.remark
+    menu.last_time = utc_now()
+    db.commit()
+    db.refresh(menu)
+    return ok(menu_item(menu), "菜单更新成功")
+
+
+@router.delete("/menus/{menuId}", response_model=AdminResponse, summary="删除菜单", description="删除动态菜单；存在下级时不允许删除。")
+def delete_admin_menu(menuId: Annotated[str, Path(description="业务菜单 ID")], db: Annotated[Session, Depends(get_db)], _: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+    seed_menus_if_empty(db)
+    menu = get_menu_or_404(db, menuId)
+    if db.query(AdminMenu).filter(AdminMenu.parent_id == menuId).one_or_none():
+        raise fail(status.HTTP_400_BAD_REQUEST, "存在下级菜单，不能删除")
+    db.delete(menu)
+    db.commit()
+    return ok(None, "菜单删除成功")
 
 
 @router.get("/accounts", response_model=AdminResponse, summary="后台账号列表", description="账号管理列表。")

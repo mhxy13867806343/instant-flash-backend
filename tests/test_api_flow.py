@@ -197,6 +197,42 @@ def test_admin_system_config_flow() -> None:
     login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
     headers = {"Authorization": f"Bearer {login.json()['data']['token']}"}
 
+    menu_tree = client.get("/api/admin/menus", headers=headers)
+    assert menu_tree.status_code == 200
+    assert menu_tree.json()["data"]["total"] >= 17
+    assert menu_tree.json()["data"]["list"][0]["menuId"] == "menu_dashboard"
+    menu_routes = client.get("/api/admin/menus/routes", headers=headers)
+    assert menu_routes.status_code == 200
+    assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
+    menu = client.post(
+        "/api/admin/menus",
+        json={
+            "parentId": "menu_system",
+            "title": "测试菜单",
+            "path": "/test-menu",
+            "name": "TestMenu",
+            "component": "views/test/Menu",
+            "icon": "Memo",
+            "type": "menu",
+            "permission": "dashboard",
+            "sort": 99,
+            "status": "enabled",
+            "visible": True,
+            "keepAlive": False,
+            "affix": False,
+        },
+        headers=headers,
+    )
+    assert menu.status_code == 200
+    menu_id = menu.json()["data"]["menuId"]
+    assert client.get(f"/api/admin/menus/{menu_id}", headers=headers).json()["data"]["name"] == "TestMenu"
+    assert client.put(
+        f"/api/admin/menus/{menu_id}",
+        json={**menu.json()["data"], "title": "测试菜单2"},
+        headers=headers,
+    ).json()["data"]["title"] == "测试菜单2"
+    assert client.delete(f"/api/admin/menus/{menu_id}", headers=headers).status_code == 200
+
     tag = client.post(
         "/api/admin/tags",
         json={"name": "推荐", "color": "#1677ff", "sort": 1, "status": "enabled", "remark": "首页推荐"},

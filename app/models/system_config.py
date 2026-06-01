@@ -108,3 +108,26 @@ class AdminAccount(TimestampMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text)
     password: Mapped[str] = mapped_column(String(128), default="123456", nullable=False)
     last_login: Mapped[str | None] = mapped_column(String(32))
+
+
+class AdminMenu(TimestampMixin, Base):
+    __tablename__ = "admin_menus"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    menu_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(64), nullable=False)
+    path: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    component: Mapped[str | None] = mapped_column(String(128))
+    redirect: Mapped[str | None] = mapped_column(String(128))
+    icon: Mapped[str | None] = mapped_column(String(64))
+    type: Mapped[str] = mapped_column(String(32), default="menu", nullable=False)
+    permission: Mapped[str | None] = mapped_column(String(64), index=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    keep_alive: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    affix: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    external_link: Mapped[str | None] = mapped_column(String(512))
+    remark: Mapped[str | None] = mapped_column(Text)
