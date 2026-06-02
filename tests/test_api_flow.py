@@ -180,6 +180,15 @@ def test_admin_flow() -> None:
     assert admin_post.json()["data"]["postId"] == post_id
     assert "post_id" not in admin_post.json()["data"]
 
+    admin_operation_logs = client.get("/api/admin/logs", params={"category": "admin_operation"}, headers=admin_headers)
+    assert admin_operation_logs.status_code == 200
+    assert admin_operation_logs.json()["data"]["total"] >= 1
+    assert any("后台" in item["content"] for item in admin_operation_logs.json()["data"]["list"])
+    user_operation_logs = client.get("/api/admin/logs", params={"category": "user_operation"}, headers=admin_headers)
+    assert user_operation_logs.status_code == 200
+    assert user_operation_logs.json()["data"]["total"] >= 1
+    assert any(item["username"] == "Target" for item in user_operation_logs.json()["data"]["list"])
+
     deleted_comment = client.delete(
         f"/api/admin/comments/{comment_response.json()['commentId']}",
         headers=admin_headers,

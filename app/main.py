@@ -17,6 +17,7 @@ from app.api.messages import router as messages_router
 from app.api.posts import router as posts_router
 from app.api.users import router as users_router
 from app.core.config import settings
+from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,17 @@ app.include_router(posts_router)
 app.include_router(users_router)
 app.include_router(messages_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def operation_log_middleware(request: Request, call_next) -> Response:
+    if should_skip_log(request.url.path):
+        return await call_next(request)
+    actor = resolve_actor(request)
+    response = await call_next(request)
+    if actor is not None:
+        record_operation_log(request, response, actor)
+    return response
 
 
 def custom_openapi() -> dict:
