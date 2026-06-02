@@ -1953,7 +1953,7 @@ def list_admin_roles(
         query = query.filter((AdminRole.label.ilike(f"%{keyword}%")) | (AdminRole.role_key.ilike(f"%{keyword}%")))
     if status_filter:
         query = query.filter(AdminRole.status == status_filter)
-    roles = query.order_by(AdminRole.sort.asc(), AdminRole.create_time.asc()).all()
+    roles = query.order_by(AdminRole.is_default.desc(), AdminRole.sort.asc(), AdminRole.create_time.asc()).all()
     return ok({"list": [role_item(role) for role in roles], "total": len(roles)})
 
 
@@ -1963,6 +1963,9 @@ def create_admin_role(payload: AdminRolePayload, db: Annotated[Session, Depends(
     validate_permission_keys(db, payload.permissions)
     if db.query(AdminRole).filter(AdminRole.role_key == payload.roleKey).one_or_none():
         raise fail(status.HTTP_400_BAD_REQUEST, "角色标识已存在")
+    custom_role_count = db.query(AdminRole).filter(AdminRole.is_default.is_(False)).count()
+    if custom_role_count >= 3:
+        raise fail(status.HTTP_400_BAD_REQUEST, "自定义角色最多只能新增 3 个")
     role = AdminRole(
         role_id=new_business_id("role"),
         role_key=payload.roleKey,

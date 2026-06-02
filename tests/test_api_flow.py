@@ -363,6 +363,8 @@ def test_admin_system_config_flow() -> None:
     assert roles.status_code == 200
     assert roles.json()["data"]["total"] >= 4
     assert {item["roleKey"] for item in roles.json()["data"]["list"]} >= {"superadmin", "admin", "operator", "viewer"}
+    assert [item["roleKey"] for item in roles.json()["data"]["list"][:4]] == ["superadmin", "admin", "operator", "viewer"]
+    assert all(item["isDefault"] is True for item in roles.json()["data"]["list"][:4])
     default_viewer = next(item for item in roles.json()["data"]["list"] if item["roleKey"] == "viewer")
     default_delete = client.delete(f"/api/admin/roles/{default_viewer['roleId']}", headers=headers)
     assert default_delete.status_code == 400
@@ -400,6 +402,49 @@ def test_admin_system_config_flow() -> None:
     )
     assert role_update.status_code == 200
     assert role_update.json()["data"]["label"] == "审计员2"
+    role_limit_2 = client.post(
+        "/api/admin/roles",
+        json={
+            "roleKey": "custom_role_2",
+            "label": "自定义角色2",
+            "icon": "User",
+            "permissions": ["dashboard"],
+            "sort": 52,
+            "status": "enabled",
+            "remark": "测试角色上限",
+        },
+        headers=headers,
+    )
+    assert role_limit_2.status_code == 200
+    role_limit_3 = client.post(
+        "/api/admin/roles",
+        json={
+            "roleKey": "custom_role_3",
+            "label": "自定义角色3",
+            "icon": "User",
+            "permissions": ["dashboard"],
+            "sort": 53,
+            "status": "enabled",
+            "remark": "测试角色上限",
+        },
+        headers=headers,
+    )
+    assert role_limit_3.status_code == 200
+    role_limit_4 = client.post(
+        "/api/admin/roles",
+        json={
+            "roleKey": "custom_role_4",
+            "label": "自定义角色4",
+            "icon": "User",
+            "permissions": ["dashboard"],
+            "sort": 54,
+            "status": "enabled",
+            "remark": "测试角色上限",
+        },
+        headers=headers,
+    )
+    assert role_limit_4.status_code == 400
+    assert role_limit_4.json()["message"] == "自定义角色最多只能新增 3 个"
 
     tag = client.post(
         "/api/admin/tags",
@@ -554,6 +599,8 @@ def test_admin_system_config_flow() -> None:
     assert client.post(f"/api/admin/accounts/{account_id}/reset-password", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/accounts/{account_id}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/roles/{custom_role_id}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/roles/{role_limit_2.json()['data']['roleId']}", headers=headers).status_code == 200
+    assert client.delete(f"/api/admin/roles/{role_limit_3.json()['data']['roleId']}", headers=headers).status_code == 200
     assert client.delete(f"/api/admin/permissions/{custom_permission_id}", headers=headers).status_code == 200
     assert client.post("/api/admin/versions/batch-delete", json={"ids": [version_id]}, headers=headers).status_code == 200
     assert client.post("/api/admin/announcements/batch-delete", json={"ids": [announcement_id]}, headers=headers).status_code == 200
