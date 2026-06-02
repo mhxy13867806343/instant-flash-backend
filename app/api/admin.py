@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -17,6 +17,8 @@ from app.models.admin_agreement import AdminAgreement
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.post import Post
+from app.models.post_like import PostLike
+from app.models.post_share import PostShare
 from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminPermission, AdminRegion, AdminRole, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
@@ -654,6 +656,67 @@ def notification_item(message: Message) -> dict[str, Any]:
     }
 
 
+def dashboard_trend_buckets(period: str) -> list[tuple[str, datetime, datetime]]:
+    now = utc_now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "today":
+        points = [2, 6, 10, 14, 18, 22, 24]
+        buckets: list[tuple[str, datetime, datetime]] = []
+        previous = today_start
+        for hour in points:
+            current = today_start + timedelta(hours=hour)
+            label = "今日汇总" if hour == 24 else f"{hour:02d}:00"
+            bounded_end = min(current, now)
+            if bounded_end < previous:
+                bounded_end = previous
+            buckets.append((label, previous, bounded_end))
+            previous = current
+        return buckets
+
+    if period == "week":
+        week_start = today_start - timedelta(days=today_start.weekday())
+        labels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        return [
+            (
+                labels[index],
+                week_start + timedelta(days=index),
+                max(week_start + timedelta(days=index), min(week_start + timedelta(days=index + 1), now)),
+            )
+            for index in range(7)
+        ]
+
+    month_start = today_start.replace(day=1)
+    buckets = []
+    cursor = month_start
+    while cursor <= now:
+        end = cursor + timedelta(days=1)
+        buckets.append((f"{cursor.day:02d}日", cursor, min(end, now)))
+        cursor = end
+    return buckets
+
+
+def count_between(db: Session, model: type[Any], field: Any, start: datetime, end: datetime, *conditions: Any) -> int:
+    query = db.query(func.count(model.id)).filter(field >= start, field < end)
+    for condition in conditions:
+        query = query.filter(condition)
+    return query.scalar() or 0
+
+
+def distinct_users_between(db: Session, start: datetime, end: datetime) -> int:
+    user_ids: set[str] = set()
+    for value in db.query(Post.user_id).filter(Post.create_time >= start, Post.create_time < end, Post.is_deleted.is_(False)).all():
+        user_ids.add(value[0])
+    for value in db.query(Comment.user_id).filter(Comment.create_time >= start, Comment.create_time < end, Comment.is_deleted.is_(False)).all():
+        user_ids.add(value[0])
+    for value in db.query(PostLike.user_id).filter(PostLike.create_time >= start, PostLike.create_time < end).all():
+        user_ids.add(value[0])
+    for value in db.query(PostShare.user_id).filter(PostShare.create_time >= start, PostShare.create_time < end).all():
+        user_ids.add(value[0])
+    for value in db.query(Message.user_id).filter(Message.create_time >= start, Message.create_time < end).all():
+        user_ids.add(value[0])
+    return len(user_ids)
+
+
 def ensure_admin_notification(db: Session, admin_subject: str, message: AdminSystemMessage) -> None:
     admin_user_id = f"admin:{admin_subject}"
     exists = (
@@ -804,6 +867,68 @@ def dashboard_metrics(
             "offlinePosts": offline_posts,
             "totalComments": total_comments,
             "totalLikes": total_likes,
+        }
+    )
+
+
+@router.get(
+    "/dashboard/trends",
+    response_model=AdminResponse,
+    summary="看板趋势图",
+    description="获取后台首页趋势图数据，支持流量与内容、用户活跃与增长，以及今日/本周/本月。",
+)
+def dashboard_trends(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    type: Annotated[str, Query(pattern="^(traffic_content|user_growth)$", description="趋势类型：traffic_content 流量与内容，user_growth 用户活跃与增长")] = "traffic_content",
+    period: Annotated[str, Query(pattern="^(today|week|month)$", description="时间范围：today 今日，week 本周，month 本月")] = "today",
+) -> dict[str, Any]:
+    buckets = dashboard_trend_buckets(period)
+    labels: list[str] = []
+    visits: list[int] = []
+    posts: list[int] = []
+    active_users: list[int] = []
+    new_users: list[int] = []
+
+    for label, start, end in buckets:
+        labels.append(label)
+        post_count = count_between(db, Post, Post.create_time, start, end, Post.is_deleted.is_(False))
+        comment_count = count_between(db, Comment, Comment.create_time, start, end, Comment.is_deleted.is_(False))
+        like_count = count_between(db, PostLike, PostLike.create_time, start, end)
+        share_count = count_between(db, PostShare, PostShare.create_time, start, end)
+        message_count = count_between(db, Message, Message.create_time, start, end)
+        visits.append(post_count + comment_count + like_count + share_count + message_count)
+        posts.append(post_count)
+        active_users.append(distinct_users_between(db, start, end))
+        new_users.append(count_between(db, User, User.create_time, start, end))
+
+    if type == "user_growth":
+        series = [
+            {"key": "activeUsers", "name": "活跃用户趋势 (Active Users)", "type": "line", "data": active_users},
+            {"key": "newUsers", "name": "新增用户统计 (New Users)", "type": "bar", "data": new_users},
+        ]
+    else:
+        series = [
+            {"key": "visits", "name": "活跃流量趋势 (Visits)", "type": "line", "data": visits},
+            {"key": "posts", "name": "内容发布量统计 (Posts)", "type": "bar", "data": posts},
+        ]
+
+    return ok(
+        {
+            "type": type,
+            "period": period,
+            "labels": labels,
+            "series": series,
+            "visits": visits,
+            "posts": posts,
+            "activeUsers": active_users,
+            "newUsers": new_users,
+            "summary": {
+                "visits": sum(visits),
+                "posts": sum(posts),
+                "activeUsers": sum(active_users),
+                "newUsers": sum(new_users),
+            },
         }
     )
 

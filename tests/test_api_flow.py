@@ -128,6 +128,27 @@ def test_admin_flow() -> None:
     assert login.status_code == 200
     admin_headers = {"Authorization": f"Bearer {login.json()['data']['token']}"}
 
+    traffic_trends = client.get("/api/admin/dashboard/trends", params={"type": "traffic_content", "period": "today"}, headers=admin_headers)
+    assert traffic_trends.status_code == 200
+    traffic_data = traffic_trends.json()["data"]
+    assert traffic_data["type"] == "traffic_content"
+    assert traffic_data["period"] == "today"
+    assert traffic_data["series"][0]["key"] == "visits"
+    assert traffic_data["series"][1]["key"] == "posts"
+    assert traffic_data["summary"]["posts"] >= 1
+    assert len(traffic_data["labels"]) == len(traffic_data["visits"]) == len(traffic_data["posts"])
+
+    user_growth_trends = client.get("/api/admin/dashboard/trends", params={"type": "user_growth", "period": "week"}, headers=admin_headers)
+    assert user_growth_trends.status_code == 200
+    user_growth_data = user_growth_trends.json()["data"]
+    assert user_growth_data["series"][0]["key"] == "activeUsers"
+    assert user_growth_data["series"][1]["key"] == "newUsers"
+    assert user_growth_data["summary"]["newUsers"] >= 1
+
+    month_trends = client.get("/api/admin/dashboard/trends", params={"period": "month"}, headers=admin_headers)
+    assert month_trends.status_code == 200
+    assert month_trends.json()["data"]["labels"]
+
     users = client.get("/api/admin/users", headers=admin_headers)
     assert users.status_code == 200
     assert users.json()["data"]["total"] == 1
