@@ -66,7 +66,7 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
         user = User(user_id=user_id)
         db.add(user)
 
-    for field in ("openid", "unionid", "phone", "nickname", "avatar"):
+    for field in ("openid", "unionid", "phone", "nickname", "avatar", "bio"):
         value = getattr(payload, field)
         if value is not None:
             setattr(user, field, value)
@@ -90,7 +90,7 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
         user = User(user_id=new_business_id("usr"), openid=openid)
         db.add(user)
 
-    for field in ("nickname", "avatar", "phone", "gender", "province", "city", "district"):
+    for field in ("nickname", "avatar", "phone", "gender", "bio", "province", "city", "district"):
         value = getattr(payload, field)
         if value is not None:
             setattr(user, field, value)
@@ -109,5 +109,7 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             "avatar": user.avatar,
             "phone": user.phone,
             "gender": user.gender,
+            "bio": user.bio,
+            "signature": user.bio,
         },
     )

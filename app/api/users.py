@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import re
+from pathlib import Path as FilePath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
@@ -22,10 +25,39 @@ from app.schemas.share import ShareOut
 from app.schemas.user import UserProfile, UserProfileUpdate
 
 router = APIRouter(prefix="/api/user", tags=["用户端用户"])
+AVATAR_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "avatars"
+ALLOWED_AVATAR_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 
 def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
     return {"code": 200, "message": message, "data": data or {}}
+
+
+def safe_avatar_filename(filename: str) -> str:
+    stem = FilePath(filename or "avatar").stem
+    suffix = FilePath(filename or "").suffix.lower() or ".png"
+    safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-") or "avatar"
+    return f"{safe_stem}{suffix}"
+
+
+def save_avatar_upload(file: UploadFile, user_id: str) -> tuple[str, int, str]:
+    original_filename = safe_avatar_filename(file.filename or "avatar.png")
+    suffix = FilePath(original_filename).suffix.lower()
+    if suffix not in ALLOWED_AVATAR_SUFFIXES:
+        raise fail(status.HTTP_400_BAD_REQUEST, "头像格式不正确，仅支持 jpg、jpeg、png、webp、gif")
+    content = file.file.read()
+    if not content:
+        raise fail(status.HTTP_400_BAD_REQUEST, "头像文件不能为空")
+    if len(content) > MAX_AVATAR_SIZE:
+        raise fail(status.HTTP_400_BAD_REQUEST, "头像文件不能超过 5MB")
+    md5 = hashlib.md5(content).hexdigest()
+    upload_dir = AVATAR_UPLOAD_ROOT / user_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = FilePath("uploads") / "avatars" / user_id / f"{md5}{suffix}"
+    file_path = FilePath("static") / relative_path
+    file_path.write_bytes(content)
+    return f"/static/{relative_path.as_posix()}", len(content), md5
 
 
 @router.get(
@@ -55,6 +87,33 @@ def update_profile(
     db.commit()
     db.refresh(current_user)
     return user_profile(current_user)
+
+
+@router.post(
+    "/profile/avatar",
+    summary="上传头像",
+    description="用户端上传头像接口。支持 jpg、jpeg、png、webp、gif，上传成功后自动更新当前用户 avatar 字段。",
+)
+def upload_profile_avatar(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    file: Annotated[UploadFile, File(description="头像图片文件，最大 5MB")],
+) -> dict[str, object]:
+    avatar_url, size, md5 = save_avatar_upload(file, current_user.user_id)
+    current_user.avatar = avatar_url
+    current_user.last_time = utc_now()
+    db.commit()
+    db.refresh(current_user)
+    return ok(
+        {
+            "avatar": avatar_url,
+            "url": avatar_url,
+            "size": size,
+            "md5": md5,
+            "profile": user_profile(current_user).model_dump(),
+        },
+        "头像上传成功",
+    )
 
 
 @router.get(
@@ -91,7 +150,7 @@ def import_user_data(
         raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导入类型")
     rows = read_user_import_rows(file.filename or "", file.file.read())
     row = rows[0]
-    for field in ("phone", "nickname", "avatar", "gender", "province", "city", "district"):
+    for field in ("phone", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
         value = row.get(field)
         if value:
             setattr(current_user, field, value)

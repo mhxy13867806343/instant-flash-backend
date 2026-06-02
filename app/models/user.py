@@ -17,10 +17,10 @@ class User(TimestampMixin, Base):
     nickname: Mapped[str | None] = mapped_column(String(64))
     avatar: Mapped[str | None] = mapped_column(Text)
     gender: Mapped[str | None] = mapped_column(String(16))
+    bio: Mapped[str | None] = mapped_column(Text)
     province: Mapped[str | None] = mapped_column(String(64))
     city: Mapped[str | None] = mapped_column(String(64))
     district: Mapped[str | None] = mapped_column(String(64))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
-

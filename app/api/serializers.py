@@ -21,6 +21,8 @@ def user_profile(user: User) -> UserProfile:
         nickname=user.nickname,
         avatar=user.avatar,
         gender=user.gender,
+        bio=user.bio,
+        signature=user.bio,
         province=user.province,
         city=user.city,
         district=user.district,
@@ -90,4 +92,3 @@ def message_out(message: Message) -> MessageOut:
         createdAt=message.create_time,
         updatedAt=message.update_time,
     )
-

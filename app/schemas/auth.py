@@ -19,6 +19,7 @@ class DevTokenRequest(BaseModel):
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="用户手机号")
     nickname: str | None = Field(default=None, max_length=64, title="昵称", description="用户昵称")
     avatar: str | None = Field(default=None, title="头像", description="用户头像 URL")
+    bio: str | None = Field(default=None, max_length=300, title="个性签名", description="用户个人简介/个性签名")
 
 
 class WxLoginRequest(BaseModel):
@@ -27,6 +28,7 @@ class WxLoginRequest(BaseModel):
     avatar: str | None = Field(default=None, title="头像", description="微信头像 URL")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="授权手机号")
     gender: str | None = Field(default=None, max_length=16, title="性别", description="性别展示值")
+    bio: str | None = Field(default=None, max_length=300, title="个性签名", description="用户个人简介/个性签名")
     province: str | None = Field(default=None, max_length=64, title="省份", description="省份")
     city: str | None = Field(default=None, max_length=64, title="城市", description="城市")
     district: str | None = Field(default=None, max_length=64, title="区县", description="区县")

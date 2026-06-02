@@ -296,7 +296,8 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         "postCount": post_count,
         "commentCount": comment_count,
         "likesReceived": likes_received,
-        "bio": "",
+        "bio": user.bio or "",
+        "signature": user.bio or "",
         "gender": user.gender or "保密",
     }
 
@@ -308,6 +309,7 @@ USER_EXPORT_HEADERS = [
     ("openid", "openid"),
     ("unionid", "unionid"),
     ("性别", "gender"),
+    ("个性签名", "bio"),
     ("省份", "province"),
     ("城市", "city"),
     ("区县", "district"),
@@ -332,6 +334,12 @@ USER_IMPORT_HEADER_ALIASES = {
     "avatar": "avatar",
     "性别": "gender",
     "gender": "gender",
+    "个性签名": "bio",
+    "个人简介": "bio",
+    "简介": "bio",
+    "bio": "bio",
+    "signature": "bio",
+    "intro": "bio",
     "省份": "province",
     "province": "province",
     "城市": "city",
@@ -345,7 +353,7 @@ USER_IMPORT_HEADER_ALIASES = {
     "是否启用": "isActive",
     "isActive": "isActive",
 }
-USER_IMPORT_FIELDS = {"userId", "openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district", "status", "isActive"}
+USER_IMPORT_FIELDS = {"userId", "openid", "unionid", "phone", "nickname", "avatar", "gender", "bio", "province", "city", "district", "status", "isActive"}
 
 
 def export_user_row(user: User) -> dict[str, str]:
@@ -356,6 +364,7 @@ def export_user_row(user: User) -> dict[str, str]:
         "openid": user.openid or "",
         "unionid": user.unionid or "",
         "gender": user.gender or "",
+        "bio": user.bio or "",
         "province": user.province or "",
         "city": user.city or "",
         "district": user.district or "",
@@ -510,7 +519,7 @@ def import_users_from_rows(db: Session, rows: list[dict[str, str]]) -> dict[str,
             else:
                 updated += 1
 
-            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district"):
+            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
                 value = row.get(field)
                 if value:
                     setattr(user, field, value)

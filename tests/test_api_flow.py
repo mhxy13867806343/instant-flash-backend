@@ -224,9 +224,9 @@ def test_admin_flow() -> None:
     assert user_export.content.startswith(b"\xd0\xcf")
     profile_workbook = xlwt.Workbook()
     profile_sheet = profile_workbook.add_sheet("资料导入")
-    for column, header in enumerate(["昵称", "手机号", "省份", "城市"]):
+    for column, header in enumerate(["昵称", "手机号", "个性签名", "省份", "城市"]):
         profile_sheet.write(0, column, header)
-    for column, value in enumerate(["用户端导入名", "13812345679", "浙江", "宁波"]):
+    for column, value in enumerate(["用户端导入名", "13812345679", "导入签名", "浙江", "宁波"]):
         profile_sheet.write(1, column, value)
     profile_file = io.BytesIO()
     profile_workbook.save(profile_file)
@@ -238,6 +238,24 @@ def test_admin_flow() -> None:
     )
     assert profile_import.status_code == 200
     assert profile_import.json()["data"]["nickname"] == "用户端导入名"
+    assert profile_import.json()["data"]["bio"] == "导入签名"
+    assert profile_import.json()["data"]["signature"] == "导入签名"
+    profile_update = client.put(
+        "/api/user/profile",
+        json={"nickname": "编辑资料用户", "gender": "保密", "signature": "记录生活灵感"},
+        headers=user_headers,
+    )
+    assert profile_update.status_code == 200
+    assert profile_update.json()["bio"] == "记录生活灵感"
+    assert profile_update.json()["signature"] == "记录生活灵感"
+    avatar_upload = client.post(
+        "/api/user/profile/avatar",
+        files={"file": ("avatar.png", b"\x89PNG\r\n\x1a\navatar", "image/png")},
+        headers=user_headers,
+    )
+    assert avatar_upload.status_code == 200
+    assert avatar_upload.json()["data"]["avatar"].startswith("/static/uploads/avatars/usr_admin_target/")
+    assert avatar_upload.json()["data"]["profile"]["avatar"] == avatar_upload.json()["data"]["avatar"]
 
     banned = client.put(
         "/api/admin/users/usr_admin_target",
