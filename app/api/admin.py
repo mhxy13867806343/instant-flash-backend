@@ -459,6 +459,81 @@ def export_users_xls(users: list[User]) -> bytes:
     return output.getvalue()
 
 
+def user_export_response(users: list[User], format: str) -> StreamingResponse:
+    if format == "xlsx":
+        content = export_users_xlsx(users)
+        filename = "instant-flash-users.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = export_users_xls(users)
+        filename = "instant-flash-users.xls"
+        media_type = "application/vnd.ms-excel"
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def import_users_from_rows(db: Session, rows: list[dict[str, str]]) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    created = 0
+    updated = 0
+    for index, row in enumerate(rows, start=2):
+        user_id = row.get("userId", "")
+        phone = row.get("phone", "")
+        openid = row.get("openid", "")
+        unionid = row.get("unionid", "")
+        if not any([user_id, phone, openid, unionid]):
+            errors.append({"row": index, "message": "至少填写 用户ID、手机号、openid、unionid 中的一个"})
+            continue
+        try:
+            db.flush()
+            conditions = []
+            if user_id:
+                conditions.append(User.user_id == user_id)
+            if phone:
+                conditions.append(User.phone == phone)
+            if openid:
+                conditions.append(User.openid == openid)
+            if unionid:
+                conditions.append(User.unionid == unionid)
+            matches = db.query(User).filter(or_(*conditions)).all()
+            if len({user.id for user in matches}) > 1:
+                errors.append({"row": index, "message": "用户ID/手机号/openid/unionid 命中多个用户，请检查唯一字段"})
+                continue
+            user = matches[0] if matches else None
+            if user is None:
+                user = User(user_id=user_id or new_business_id("usr"))
+                db.add(user)
+                created += 1
+            else:
+                updated += 1
+
+            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district"):
+                value = row.get(field)
+                if value:
+                    setattr(user, field, value)
+            status_value = row.get("status", "") or row.get("isActive", "")
+            active = normalize_user_status(status_value)
+            if active is not None:
+                user.is_active = active
+            user.last_time = utc_now()
+        except ValueError as exc:
+            errors.append({"row": index, "message": str(exc)})
+        except Exception as exc:
+            errors.append({"row": index, "message": f"导入失败：{exc}"})
+
+    if errors:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": 400, "message": "导入失败，请检查错误行", "data": {"errors": errors}},
+        )
+    db.commit()
+    return {"created": created, "updated": updated, "total": created + updated, "errors": []}
+
+
 def post_status(post: Post) -> str:
     return "offline" if post.status == "offline" else "online"
 
@@ -1629,19 +1704,7 @@ def export_admin_users(
         query = query.filter(User.is_active.is_(False))
 
     users = query.order_by(User.create_time.desc()).all()
-    if format == "xlsx":
-        content = export_users_xlsx(users)
-        filename = "instant-flash-users.xlsx"
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    else:
-        content = export_users_xls(users)
-        filename = "instant-flash-users.xls"
-        media_type = "application/vnd.ms-excel"
-    return StreamingResponse(
-        io.BytesIO(content),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return user_export_response(users, format)
 
 
 @router.post(
@@ -1656,62 +1719,59 @@ def import_admin_users(
     file: Annotated[UploadFile, File(description="用户 Excel 文件，仅支持 .xls/.xlsx")],
 ) -> dict[str, Any]:
     rows = read_user_import_rows(file.filename or "", file.file.read())
-    errors: list[dict[str, Any]] = []
-    created = 0
-    updated = 0
-    for index, row in enumerate(rows, start=2):
-        user_id = row.get("userId", "")
-        phone = row.get("phone", "")
-        openid = row.get("openid", "")
-        unionid = row.get("unionid", "")
-        if not any([user_id, phone, openid, unionid]):
-            errors.append({"row": index, "message": "至少填写 用户ID、手机号、openid、unionid 中的一个"})
-            continue
-        try:
-            db.flush()
-            conditions = []
-            if user_id:
-                conditions.append(User.user_id == user_id)
-            if phone:
-                conditions.append(User.phone == phone)
-            if openid:
-                conditions.append(User.openid == openid)
-            if unionid:
-                conditions.append(User.unionid == unionid)
-            matches = db.query(User).filter(or_(*conditions)).all()
-            if len({user.id for user in matches}) > 1:
-                errors.append({"row": index, "message": "用户ID/手机号/openid/unionid 命中多个用户，请检查唯一字段"})
-                continue
-            user = matches[0] if matches else None
-            if user is None:
-                user = User(user_id=user_id or new_business_id("usr"))
-                db.add(user)
-                created += 1
-            else:
-                updated += 1
+    return ok(import_users_from_rows(db, rows), "用户导入成功")
 
-            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district"):
-                value = row.get(field)
-                if value:
-                    setattr(user, field, value)
-            status_value = row.get("status", "") or row.get("isActive", "")
-            active = normalize_user_status(status_value)
-            if active is not None:
-                user.is_active = active
-            user.last_time = utc_now()
-        except ValueError as exc:
-            errors.append({"row": index, "message": str(exc)})
-        except Exception as exc:
-            errors.append({"row": index, "message": f"导入失败：{exc}"})
 
-    if errors:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": 400, "message": "导入失败，请检查错误行", "data": {"errors": errors}},
-        )
-    db.commit()
-    return ok({"created": created, "updated": updated, "total": created + updated, "errors": []}, "用户导入成功")
+@router.get(
+    "/export",
+    summary="后台通用导出",
+    description="后台通用导出入口。target/type 默认 users，当前支持导出用户 .xls/.xlsx。",
+)
+def export_admin_data(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    target: Annotated[str, Query(description="导出类型，默认 users")] = "users",
+    type_alias: Annotated[str | None, Query(alias="type", description="兼容旧参数 type", include_in_schema=False)] = None,
+    format: Annotated[str, Query(pattern="^(xls|xlsx)$", description="导出格式：xls 或 xlsx")] = "xls",
+    nickname: Annotated[str | None, Query(description="用户昵称，模糊匹配")] = None,
+    phone: Annotated[str | None, Query(description="手机号，模糊匹配")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="账号状态：normal 正常，banned 禁用")] = None,
+) -> StreamingResponse:
+    export_target = (type_alias or target or "users").strip().lower()
+    if export_target not in {"users", "user"}:
+        raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导出类型")
+
+    query = db.query(User)
+    if nickname:
+        query = query.filter(User.nickname.ilike(f"%{nickname}%"))
+    if phone:
+        query = query.filter(User.phone.ilike(f"%{phone}%"))
+    if status_filter == "normal":
+        query = query.filter(User.is_active.is_(True))
+    elif status_filter == "banned":
+        query = query.filter(User.is_active.is_(False))
+    users = query.order_by(User.create_time.desc()).all()
+    return user_export_response(users, format)
+
+
+@router.post(
+    "/import",
+    response_model=AdminResponse,
+    summary="后台通用导入",
+    description="后台通用导入入口。target/type 默认 users，当前支持导入用户 .xls/.xlsx。",
+)
+def import_admin_data(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    file: Annotated[UploadFile, File(description="Excel 文件，仅支持 .xls/.xlsx")],
+    target: Annotated[str, Query(description="导入类型，默认 users")] = "users",
+    type_alias: Annotated[str | None, Query(alias="type", description="兼容旧参数 type", include_in_schema=False)] = None,
+) -> dict[str, Any]:
+    import_target = (type_alias or target or "users").strip().lower()
+    if import_target not in {"users", "user"}:
+        raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导入类型")
+    rows = read_user_import_rows(file.filename or "", file.file.read())
+    return ok(import_users_from_rows(db, rows), "用户导入成功")
 
 
 @router.get(

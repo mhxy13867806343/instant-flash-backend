@@ -166,6 +166,10 @@ def test_admin_flow() -> None:
     assert export_xlsx.status_code == 200
     assert export_xlsx.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     assert export_xlsx.content.startswith(b"PK")
+    generic_export = client.get("/api/admin/export", headers=admin_headers)
+    assert generic_export.status_code == 200
+    assert generic_export.headers["content-type"].startswith("application/vnd.ms-excel")
+    assert generic_export.content.startswith(b"\xd0\xcf")
     bad_import = client.post(
         "/api/admin/users/import",
         files={"file": ("users.txt", b"bad file", "text/plain")},
@@ -196,6 +200,44 @@ def test_admin_flow() -> None:
     assert imported_user.status_code == 200
     assert imported_user.json()["data"]["nickname"] == "导入用户"
     assert imported_user.json()["data"]["status"] == "banned"
+
+    generic_workbook = xlwt.Workbook()
+    generic_sheet = generic_workbook.add_sheet("用户导入")
+    for column, header in enumerate(["用户ID", "昵称", "手机号", "账号状态"]):
+        generic_sheet.write(0, column, header)
+    for column, value in enumerate(["usr_import_generic", "通用导入用户", "13900000001", "正常"]):
+        generic_sheet.write(1, column, value)
+    generic_import_file = io.BytesIO()
+    generic_workbook.save(generic_import_file)
+    generic_import_file.seek(0)
+    generic_import = client.post(
+        "/api/admin/import",
+        files={"file": ("users.xls", generic_import_file.read(), "application/vnd.ms-excel")},
+        headers=admin_headers,
+    )
+    assert generic_import.status_code == 200
+    assert generic_import.json()["data"]["created"] == 1
+
+    user_export = client.get("/api/user/export", headers=user_headers)
+    assert user_export.status_code == 200
+    assert user_export.headers["content-type"].startswith("application/vnd.ms-excel")
+    assert user_export.content.startswith(b"\xd0\xcf")
+    profile_workbook = xlwt.Workbook()
+    profile_sheet = profile_workbook.add_sheet("资料导入")
+    for column, header in enumerate(["昵称", "手机号", "省份", "城市"]):
+        profile_sheet.write(0, column, header)
+    for column, value in enumerate(["用户端导入名", "13812345679", "浙江", "宁波"]):
+        profile_sheet.write(1, column, value)
+    profile_file = io.BytesIO()
+    profile_workbook.save(profile_file)
+    profile_file.seek(0)
+    profile_import = client.post(
+        "/api/user/import",
+        files={"file": ("profile.xls", profile_file.read(), "application/vnd.ms-excel")},
+        headers=user_headers,
+    )
+    assert profile_import.status_code == 200
+    assert profile_import.json()["data"]["nickname"] == "用户端导入名"
 
     banned = client.put(
         "/api/admin/users/usr_admin_target",

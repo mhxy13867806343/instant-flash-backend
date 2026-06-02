@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.admin import fail, read_user_import_rows, user_export_response
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
 from app.db.base import utc_now
@@ -20,6 +22,10 @@ from app.schemas.share import ShareOut
 from app.schemas.user import UserProfile, UserProfileUpdate
 
 router = APIRouter(prefix="/api/user", tags=["用户端用户"])
+
+
+def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
+    return {"code": 200, "message": message, "data": data or {}}
 
 
 @router.get(
@@ -49,6 +55,50 @@ def update_profile(
     db.commit()
     db.refresh(current_user)
     return user_profile(current_user)
+
+
+@router.get(
+    "/export",
+    summary="用户端导出",
+    description="用户端通用导出入口。target/type 默认 users，导出当前登录用户资料，支持 .xls 和 .xlsx。",
+)
+def export_user_data(
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    target: Annotated[str, Query(description="导出类型，默认 users")] = "users",
+    type_alias: Annotated[str | None, Query(alias="type", description="兼容旧参数 type", include_in_schema=False)] = None,
+    format: Annotated[str, Query(pattern="^(xls|xlsx)$", description="导出格式：xls 或 xlsx")] = "xls",
+) -> StreamingResponse:
+    export_target = (type_alias or target or "users").strip().lower()
+    if export_target not in {"users", "user", "profile"}:
+        raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导出类型")
+    return user_export_response([current_user], format)
+
+
+@router.post(
+    "/import",
+    summary="用户端导入",
+    description="用户端通用导入入口。target/type 默认 users，导入当前登录用户资料，支持 .xls 和 .xlsx。",
+)
+def import_user_data(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    file: Annotated[UploadFile, File(description="Excel 文件，仅支持 .xls/.xlsx")],
+    target: Annotated[str, Query(description="导入类型，默认 users")] = "users",
+    type_alias: Annotated[str | None, Query(alias="type", description="兼容旧参数 type", include_in_schema=False)] = None,
+) -> dict[str, object]:
+    import_target = (type_alias or target or "users").strip().lower()
+    if import_target not in {"users", "user", "profile"}:
+        raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导入类型")
+    rows = read_user_import_rows(file.filename or "", file.file.read())
+    row = rows[0]
+    for field in ("phone", "nickname", "avatar", "gender", "province", "city", "district"):
+        value = row.get(field)
+        if value:
+            setattr(current_user, field, value)
+    current_user.last_time = utc_now()
+    db.commit()
+    db.refresh(current_user)
+    return ok(user_profile(current_user).model_dump(), "用户资料导入成功")
 
 
 @router.get(
