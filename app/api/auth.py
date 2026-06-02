@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user_required
+from app.api.deps import bearer_required, get_current_user_required
 from app.api.utils import new_business_id
-from app.core.security import create_access_token
+from app.core.security import create_access_token, revoke_access_token
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse
@@ -24,9 +27,14 @@ def fail(status_code: int, message: str) -> HTTPException:
 @router.post(
     "/logout",
     summary="用户端退出登录",
-    description="用户端退出登录接口。JWT 为无状态 Token，后端返回成功，前端清理本地 Token 即可。",
+    description="用户端退出登录接口。后端会删除 Redis 中的 Token 登录状态，前端同时清理本地 Token。",
 )
-def user_logout(_: User = Depends(get_current_user_required)) -> dict[str, object]:
+def user_logout(
+    _: Annotated[User, Depends(get_current_user_required)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_required)],
+) -> dict[str, object]:
+    if credentials is not None:
+        revoke_access_token(credentials.credentials)
     return {"code": 200, "message": "退出成功", "data": {}}
 
 

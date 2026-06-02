@@ -4,6 +4,7 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
+os.environ["REDIS_URL"] = "memory://"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -91,6 +92,8 @@ def test_content_flow() -> None:
     logout = client.post("/api/auth/logout", headers=headers)
     assert logout.status_code == 200
     assert logout.json() == {"code": 200, "message": "退出成功", "data": {}}
+    after_logout_profile = client.get("/api/user/profile", headers=headers)
+    assert after_logout_profile.status_code == 401
 
     comments = client.get(f"/api/posts/{post_id}/comments?page=1&pageSize=10")
     assert comments.status_code == 200
@@ -200,7 +203,11 @@ def test_admin_system_config_flow() -> None:
 
     login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
     headers = {"Authorization": f"Bearer {login.json()['data']['token']}"}
-    assert client.post("/api/admin/auth/logout", headers=headers).json() == {"code": 200, "message": "退出成功", "data": {}}
+    logout_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    logout_headers = {"Authorization": f"Bearer {logout_login.json()['data']['token']}"}
+    assert client.post("/api/admin/auth/logout", headers=logout_headers).json() == {"code": 200, "message": "退出成功", "data": {}}
+    after_logout_admin = client.get("/api/admin/accounts", headers=logout_headers)
+    assert after_logout_admin.status_code == 401
 
     menu_tree = client.get("/api/admin/menus", headers=headers)
     assert menu_tree.status_code == 200

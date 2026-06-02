@@ -10,7 +10,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.utils import new_business_id
-from app.core.security import create_access_token, decode_access_token
+from app.core.security import create_access_token, decode_access_token, revoke_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.admin_agreement import AdminAgreement
@@ -744,7 +744,7 @@ def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_d
     account.last_login = format_time(utc_now())
     account.last_time = utc_now()
     db.commit()
-    token = create_access_token(f"admin:{account.username}")
+    token = create_access_token(f"admin:{account.username}", token_type="admin")
     return ok(
         {
             "token": token,
@@ -761,9 +761,14 @@ def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_d
     "/auth/logout",
     response_model=AdminResponse,
     summary="后台退出登录",
-    description="PC 后台退出登录接口。JWT 为无状态 Token，后端返回成功，前端清理本地 Token 即可。",
+    description="PC 后台退出登录接口。后端会删除 Redis 中的 Token 登录状态，前端同时清理本地 Token。",
 )
-def admin_logout(_: Annotated[str, Depends(get_admin_subject)]) -> dict[str, Any]:
+def admin_logout(
+    _: Annotated[str, Depends(get_admin_subject)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(admin_bearer)],
+) -> dict[str, Any]:
+    if credentials is not None:
+        revoke_access_token(credentials.credentials)
     return ok({}, "退出成功")
 
 
