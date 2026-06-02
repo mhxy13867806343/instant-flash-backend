@@ -92,6 +92,24 @@ class AdminVersion(TimestampMixin, Base):
     release_time: Mapped[str | None] = mapped_column(String(32))
 
 
+class AdminPackage(TimestampMixin, Base):
+    __tablename__ = "admin_packages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    package_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    version: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    build: Mapped[str | None] = mapped_column(String(32))
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(256), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    download_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    md5: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="uploaded", nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
 class AdminAccount(TimestampMixin, Base):
     __tablename__ = "admin_accounts"
 

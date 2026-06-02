@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime, timedelta
+from pathlib import Path as FilePath
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
@@ -19,7 +22,7 @@ from app.models.message import Message
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPackage, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -31,6 +34,7 @@ DEFAULT_AGREEMENTS = {
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
+PACKAGE_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "packages"
 DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -67,6 +71,7 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_announcement_single", "parent_id": "menu_announcement", "title": "单公告", "path": "/announcement/single", "name": "AnnouncementSingle", "component": "views/announcement/Single", "icon": "Promotion", "type": "menu", "permission": "announcement", "sort": 10},
     {"menu_id": "menu_announcement_list", "parent_id": "menu_announcement", "title": "公告列表", "path": "/announcement/list", "name": "AnnouncementList", "component": "views/announcement/List", "icon": "List", "type": "menu", "permission": "announcement", "sort": 20},
     {"menu_id": "menu_version", "parent_id": None, "title": "版本管理", "path": "/version", "name": "VersionList", "component": "views/version/List", "icon": "Upload", "type": "menu", "permission": "version", "sort": 80},
+    {"menu_id": "menu_version_packages", "parent_id": None, "title": "安装包管理", "path": "/version/packages", "name": "VersionPackageUpload", "component": "views/version/Packages", "icon": "UploadFilled", "type": "menu", "permission": "version", "sort": 81},
     {"menu_id": "menu_account_profile", "parent_id": None, "title": "个人信息", "path": "account/profile", "name": "AccountProfile", "component": "views/account/Profile", "icon": "User", "type": "menu", "permission": None, "sort": 85, "visible": False, "remark": "个人中心动态路由，仅管理员和超级管理员可见"},
     {"menu_id": "menu_account_settings", "parent_id": None, "title": "安全设置", "path": "account/settings", "name": "AccountSettings", "component": "views/account/Settings", "icon": "Lock", "type": "menu", "permission": None, "sort": 86, "visible": False, "remark": "个人中心动态路由，仅管理员和超级管理员可见"},
     {"menu_id": "menu_system", "parent_id": None, "title": "系统配置", "path": "/system", "name": "SystemConfig", "component": None, "redirect": "/tag", "icon": "Setting", "type": "catalog", "permission": None, "sort": 90},
@@ -150,6 +155,14 @@ class AdminVersionPayload(BaseModel):
     notes: str | None = Field(default=None, title="更新说明", description="更新说明，支持文本或富文本")
     notesType: str | None = Field(default=None, pattern="^(text|rich)$", title="说明类型", description="text 文本，rich 富文本")
     downloadUrl: str | None = Field(default=None, max_length=512, title="下载地址", description="安装包下载地址")
+
+
+class AdminPackageUpdatePayload(BaseModel):
+    displayName: str | None = Field(default=None, max_length=256, title="安装包展示名称", description="前端列表展示的包名称，可修改")
+    version: str | None = Field(default=None, max_length=32, title="版本号", description="安装包版本号")
+    build: str | None = Field(default=None, max_length=32, title="Build 号", description="安装包构建号")
+    status: str | None = Field(default=None, pattern="^(uploaded|active|deprecated)$", title="状态", description="uploaded 已上传，active 启用，deprecated 已下线")
+    remark: str | None = Field(default=None, title="备注", description="安装包备注")
 
 
 class AdminAccountPayload(BaseModel):
@@ -513,6 +526,48 @@ def version_item(version: AdminVersion) -> dict[str, Any]:
         "releaseTime": version.release_time or format_time(version.create_time),
         "createdAt": format_time(version.create_time),
         "updatedAt": format_time(version.update_time),
+    }
+
+
+def file_size_text(size_bytes: int) -> str:
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    return f"{size_bytes} B"
+
+
+def package_item(package: AdminPackage) -> dict[str, Any]:
+    return {
+        "packageId": package.package_id,
+        "platform": package.platform,
+        "version": package.version,
+        "build": package.build or "",
+        "displayName": package.display_name,
+        "fileName": package.original_filename,
+        "originalFileName": package.original_filename,
+        "filePath": package.file_path,
+        "downloadUrl": package.download_url,
+        "md5": package.md5,
+        "sizeBytes": package.size_bytes,
+        "sizeText": file_size_text(package.size_bytes),
+        "status": package.status,
+        "remark": package.remark or "",
+        "uploadTime": format_time(package.create_time),
+        "createdAt": format_time(package.create_time),
+        "updatedAt": format_time(package.update_time),
+    }
+
+
+def package_version_summary_item(row: tuple[str, int, int | None, datetime | None]) -> dict[str, Any]:
+    version, total, total_size, last_upload = row
+    return {
+        "version": version,
+        "total": total,
+        "packageCount": total,
+        "sizeBytes": total_size or 0,
+        "sizeText": file_size_text(total_size or 0),
+        "lastUploadTime": format_time(last_upload),
     }
 
 
@@ -1845,6 +1900,44 @@ def get_version_or_404(db: Session, version_id: str) -> AdminVersion:
     return version
 
 
+def get_package_or_404(db: Session, package_id: str) -> AdminPackage:
+    package = db.query(AdminPackage).filter(AdminPackage.package_id == package_id).one_or_none()
+    if package is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "安装包未找到")
+    return package
+
+
+def safe_upload_filename(filename: str) -> str:
+    name = FilePath(filename or "package.bin").name
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name) or "package.bin"
+
+
+def save_package_upload(file: UploadFile, package_id: str, platform: str) -> tuple[str, str, str, int, str]:
+    original_filename = safe_upload_filename(file.filename or "package.bin")
+    suffix = FilePath(original_filename).suffix
+    upload_dir = PACKAGE_UPLOAD_ROOT / platform.lower()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = FilePath("uploads") / "packages" / platform.lower() / f"{package_id}{suffix}"
+    target_path = PACKAGE_UPLOAD_ROOT.parent.parent / relative_path
+
+    md5 = hashlib.md5()
+    size_bytes = 0
+    with target_path.open("wb") as output:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            size_bytes += len(chunk)
+            md5.update(chunk)
+            output.write(chunk)
+    if size_bytes == 0:
+        target_path.unlink(missing_ok=True)
+        raise fail(status.HTTP_400_BAD_REQUEST, "上传文件不能为空")
+    file_path = f"static/{relative_path.as_posix()}"
+    download_url = f"/static/{relative_path.as_posix()}"
+    return original_filename, file_path, download_url, size_bytes, md5.hexdigest()
+
+
 def get_account_or_404(db: Session, account_id: str) -> AdminAccount:
     account = db.query(AdminAccount).filter(AdminAccount.account_id == account_id).one_or_none()
     if account is None:
@@ -2242,6 +2335,157 @@ def batch_delete_versions(payload: BatchIdsPayload, db: Annotated[Session, Depen
     count = db.query(AdminVersion).filter(AdminVersion.version_id.in_(payload.ids)).delete(synchronize_session=False)
     db.commit()
     return ok({"count": count}, "批量删除成功")
+
+
+@router.get("/packages", response_model=AdminResponse, summary="安装包列表", description="安装包管理列表，默认展示 Android，可按平台、版本号和关键词筛选。")
+def list_admin_packages(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    platform: Annotated[str, Query(pattern="^(Android|iOS|HarmonyOS)$", description="平台，默认 Android")] = "Android",
+    version: Annotated[str | None, Query(description="版本号，精确匹配")] = None,
+    keyword: Annotated[str | None, Query(description="包名、原始文件名、MD5 关键词")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：uploaded/active/deprecated")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=1000, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(AdminPackage).filter(AdminPackage.platform == platform)
+    if version:
+        query = query.filter(AdminPackage.version == version)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter(
+            or_(
+                AdminPackage.display_name.ilike(like_keyword),
+                AdminPackage.original_filename.ilike(like_keyword),
+                AdminPackage.md5.ilike(like_keyword),
+            )
+        )
+    if status_filter:
+        query = query.filter(AdminPackage.status == status_filter)
+
+    total = query.count()
+    items = query.order_by(AdminPackage.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    latest = db.query(AdminPackage).filter(AdminPackage.platform == platform).order_by(AdminPackage.create_time.desc()).first()
+    version_rows = (
+        db.query(AdminPackage.version, func.count(AdminPackage.id), func.coalesce(func.sum(AdminPackage.size_bytes), 0), func.max(AdminPackage.create_time))
+        .filter(AdminPackage.platform == platform)
+        .group_by(AdminPackage.version)
+        .order_by(func.max(AdminPackage.create_time).desc())
+        .all()
+    )
+    return ok(
+        {
+            "platform": platform,
+            "list": [package_item(item) for item in items],
+            "total": total,
+            "latest": package_item(latest) if latest else None,
+            "versions": [package_version_summary_item(row) for row in version_rows],
+            "platformTabs": ["Android", "iOS", "HarmonyOS"],
+        }
+    )
+
+
+@router.post("/packages/upload", response_model=AdminResponse, summary="上传安装包", description="上传 Android/iOS/HarmonyOS 安装包，后端自动计算 MD5 和文件大小。")
+def upload_admin_package(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+    request: Request,
+    platform: Annotated[str, Form(pattern="^(Android|iOS|HarmonyOS)$", description="平台：Android/iOS/HarmonyOS")],
+    version: Annotated[str, Form(min_length=1, max_length=32, description="版本号")],
+    file: Annotated[UploadFile, File(description="安装包文件")],
+    build: Annotated[str | None, Form(max_length=32, description="Build 号")] = None,
+    displayName: Annotated[str | None, Form(max_length=256, description="安装包展示名称")] = None,
+    remark: Annotated[str | None, Form(description="备注")] = None,
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    package_id = new_business_id("pkg")
+    original_filename, file_path, download_url, size_bytes, md5 = save_package_upload(file, package_id, platform)
+    package = AdminPackage(
+        package_id=package_id,
+        platform=platform,
+        version=version,
+        build=build or "",
+        display_name=displayName or original_filename,
+        original_filename=original_filename,
+        file_path=file_path,
+        download_url=download_url,
+        md5=md5,
+        size_bytes=size_bytes,
+        status="uploaded",
+        remark=remark or "",
+    )
+    db.add(package)
+    write_admin_log(
+        db,
+        account=account,
+        username=account.username,
+        category="package",
+        action="package_upload",
+        title="上传安装包",
+        content=f"{platform} {version} {original_filename}",
+        status_value="success",
+        request=request,
+    )
+    db.commit()
+    db.refresh(package)
+    return ok(package_item(package), "安装包上传成功")
+
+
+@router.get("/packages/history", response_model=AdminResponse, summary="版本安装包历史", description="点击某个版本时查询该版本下所有安装包上传记录。")
+def list_admin_package_history(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    platform: Annotated[str, Query(pattern="^(Android|iOS|HarmonyOS)$", description="平台")] = "Android",
+    version: Annotated[str, Query(min_length=1, description="版本号")] = "",
+) -> dict[str, Any]:
+    query = db.query(AdminPackage).filter(AdminPackage.platform == platform, AdminPackage.version == version)
+    items = query.order_by(AdminPackage.create_time.desc()).all()
+    return ok({"platform": platform, "version": version, "list": [package_item(item) for item in items], "total": len(items)})
+
+
+@router.get("/packages/{packageId}", response_model=AdminResponse, summary="安装包详情", description="根据安装包 ID 查询文件名、MD5、大小和版本等详情。")
+def get_admin_package(
+    packageId: Annotated[str, Path(description="安装包 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    return ok(package_item(get_package_or_404(db, packageId)))
+
+
+@router.put("/packages/{packageId}", response_model=AdminResponse, summary="修改安装包", description="修改安装包展示名称、版本号、Build 号、状态和备注。")
+def update_admin_package(
+    packageId: Annotated[str, Path(description="安装包 ID")],
+    payload: AdminPackageUpdatePayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    package = get_package_or_404(db, packageId)
+    if payload.displayName is not None:
+        package.display_name = payload.displayName
+    if payload.version is not None:
+        package.version = payload.version
+    if payload.build is not None:
+        package.build = payload.build
+    if payload.status is not None:
+        package.status = payload.status
+    if payload.remark is not None:
+        package.remark = payload.remark
+    package.last_time = utc_now()
+    db.commit()
+    db.refresh(package)
+    return ok(package_item(package), "安装包更新成功")
+
+
+@router.delete("/packages/{packageId}", response_model=AdminResponse, summary="删除安装包", description="删除安装包记录。文件会保留在 static 目录，避免下载链接被误删。")
+def delete_admin_package(
+    packageId: Annotated[str, Path(description="安装包 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    package = get_package_or_404(db, packageId)
+    db.delete(package)
+    db.commit()
+    return ok(None, "安装包删除成功")
 
 
 @router.get("/menus", response_model=AdminResponse, summary="菜单列表", description="后台动态菜单列表，默认返回树形结构。")

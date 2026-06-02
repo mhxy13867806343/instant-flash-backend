@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
@@ -241,6 +243,7 @@ def test_admin_system_config_flow() -> None:
     assert any(item["name"] == "AccountProfile" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "AccountSettings" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "LogList" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "VersionPackageUpload" for item in menu_routes.json()["data"]["flatList"])
     assert next(item for item in menu_routes.json()["data"]["flatList"] if item["name"] == "LogList")["path"] == "log/list"
 
     security_overview = client.get("/api/admin/security/overview", headers=headers)
@@ -625,6 +628,43 @@ def test_admin_system_config_flow() -> None:
     versions_empty = client.get("/api/admin/versions", params={"page": 1, "limit": 9999}, headers=headers)
     assert versions_empty.status_code == 200
     assert versions_empty.json()["data"]["total"] >= 1
+    packages_empty = client.get("/api/admin/packages", headers=headers)
+    assert packages_empty.status_code == 200
+    assert packages_empty.json()["data"]["platform"] == "Android"
+    assert packages_empty.json()["data"]["total"] == 0
+    package_bytes = b"instant flash android package"
+    package_upload = client.post(
+        "/api/admin/packages/upload",
+        data={"platform": "Android", "version": "2.0.0", "build": "200", "displayName": "即闪 Android 安装包.apk", "remark": "测试包"},
+        files={"file": ("instant-flash.apk", package_bytes, "application/vnd.android.package-archive")},
+        headers=headers,
+    )
+    assert package_upload.status_code == 200
+    package_data = package_upload.json()["data"]
+    package_id = package_data["packageId"]
+    assert package_data["md5"] == hashlib.md5(package_bytes).hexdigest()
+    assert package_data["sizeBytes"] == len(package_bytes)
+    assert package_data["fileName"] == "instant-flash.apk"
+    assert package_data["displayName"] == "即闪 Android 安装包.apk"
+    assert package_data["downloadUrl"].startswith("/static/uploads/packages/android/")
+    package_list = client.get("/api/admin/packages", params={"platform": "Android"}, headers=headers)
+    assert package_list.json()["data"]["total"] == 1
+    assert package_list.json()["data"]["latest"]["packageId"] == package_id
+    assert package_list.json()["data"]["versions"][0]["version"] == "2.0.0"
+    package_history = client.get("/api/admin/packages/history", params={"platform": "Android", "version": "2.0.0"}, headers=headers)
+    assert package_history.status_code == 200
+    assert package_history.json()["data"]["total"] == 1
+    package_detail = client.get(f"/api/admin/packages/{package_id}", headers=headers)
+    assert package_detail.json()["data"]["packageId"] == package_id
+    package_update = client.put(
+        f"/api/admin/packages/{package_id}",
+        json={"displayName": "改名后的安卓包.apk", "version": "2.0.1", "build": "201", "status": "active", "remark": "已改名"},
+        headers=headers,
+    )
+    assert package_update.status_code == 200
+    assert package_update.json()["data"]["displayName"] == "改名后的安卓包.apk"
+    assert package_update.json()["data"]["version"] == "2.0.1"
+    Path(package_data["filePath"]).unlink(missing_ok=True)
     version = client.post(
         "/api/admin/versions",
         json={

@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.address import router as address_router
@@ -50,6 +51,7 @@ app.include_router(auth_router)
 app.include_router(posts_router)
 app.include_router(users_router)
 app.include_router(messages_router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 def custom_openapi() -> dict:
