@@ -110,6 +110,33 @@ class AdminAccount(TimestampMixin, Base):
     last_login: Mapped[str | None] = mapped_column(String(32))
 
 
+class AdminSecuritySetting(TimestampMixin, Base):
+    __tablename__ = "admin_security_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    password_policy_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
+class AdminOperationLog(TimestampMixin, Base):
+    __tablename__ = "admin_operation_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    log_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    account_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    username: Mapped[str | None] = mapped_column(String(64), index=True)
+    category: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="success", nullable=False)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    location: Mapped[str | None] = mapped_column(String(128))
+    user_agent: Mapped[str | None] = mapped_column(Text)
+
+
 class AdminRole(TimestampMixin, Base):
     __tablename__ = "admin_roles"
 

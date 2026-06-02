@@ -238,6 +238,46 @@ def test_admin_system_config_flow() -> None:
     assert menu_routes.status_code == 200
     assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "MenuList" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "AccountProfile" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "AccountSettings" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "LogList" for item in menu_routes.json()["data"]["flatList"])
+    assert next(item for item in menu_routes.json()["data"]["flatList"] if item["name"] == "LogList")["path"] == "log/list"
+
+    security_overview = client.get("/api/admin/security/overview", headers=headers)
+    assert security_overview.status_code == 200
+    assert security_overview.json()["data"]["levelKey"] in {"low", "medium", "high"}
+    assert security_overview.json()["data"]["recentLoginLogs"]
+    security_settings = client.put(
+        "/api/admin/security/settings",
+        json={"mfaEnabled": True, "passwordPolicyEnabled": True, "remark": "测试安全设置"},
+        headers=headers,
+    )
+    assert security_settings.status_code == 200
+    assert security_settings.json()["data"]["mfaEnabled"] is True
+    profile = client.get("/api/admin/account/profile", headers=headers)
+    assert profile.status_code == 200
+    assert profile.json()["data"]["username"] == "admin"
+    profile_update = client.put(
+        "/api/admin/account/profile",
+        json={"nickname": "超级管理员测试", "email": "admin-test@example.com", "phone": "13800000000"},
+        headers=headers,
+    )
+    assert profile_update.status_code == 200
+    assert profile_update.json()["data"]["nickname"] == "超级管理员测试"
+    failed_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "bad-password"})
+    assert failed_login.status_code == 400
+    login_logs = client.get("/api/admin/security/login-logs", headers=headers)
+    assert login_logs.status_code == 200
+    assert login_logs.json()["data"]["total"] >= 1
+    warning_logs = client.get("/api/admin/logs", params={"category": "login", "status": "warning"}, headers=headers)
+    assert warning_logs.status_code == 200
+    assert warning_logs.json()["data"]["total"] >= 1
+    warning_log_id = warning_logs.json()["data"]["list"][0]["logId"]
+    log_detail = client.get(f"/api/admin/logs/{warning_log_id}", headers=headers)
+    assert log_detail.status_code == 200
+    assert log_detail.json()["data"]["status"] == "warning"
+    assert client.delete(f"/api/admin/logs/{warning_log_id}", headers=headers).status_code == 200
+
     viewer = client.post(
         "/api/admin/accounts",
         json={
@@ -258,6 +298,47 @@ def test_admin_system_config_flow() -> None:
     viewer_names = [item["name"] for item in viewer_routes.json()["data"]["flatList"]]
     assert viewer_names == ["Dashboard"]
     assert client.delete(f"/api/admin/accounts/{viewer.json()['data']['account_id']}", headers=headers).status_code == 200
+    route_admin = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "route_admin",
+            "nickname": "路由管理员",
+            "avatar": "",
+            "role": "admin",
+            "permissions": ["dashboard", "account", "log"],
+            "status": "active",
+            "email": "route-admin@example.com",
+            "phone": "13800000005",
+            "remark": "验证管理员动态路由",
+        },
+        headers=headers,
+    )
+    route_admin_token = client.post("/api/admin/auth/login", json={"username": "route_admin", "password": "123456"}).json()["data"]["token"]
+    route_admin_routes = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {route_admin_token}"})
+    route_admin_names = [item["name"] for item in route_admin_routes.json()["data"]["flatList"]]
+    assert {"Dashboard", "AccountProfile", "AccountSettings", "LogList"} <= set(route_admin_names)
+    assert client.delete(f"/api/admin/accounts/{route_admin.json()['data']['account_id']}", headers=headers).status_code == 200
+    route_operator = client.post(
+        "/api/admin/accounts",
+        json={
+            "username": "route_operator",
+            "nickname": "路由运营员",
+            "avatar": "",
+            "role": "operator",
+            "permissions": ["dashboard", "log"],
+            "status": "active",
+            "email": "route-operator@example.com",
+            "phone": "13800000006",
+            "remark": "验证运营员不能拿管理员路由",
+        },
+        headers=headers,
+    )
+    route_operator_token = client.post("/api/admin/auth/login", json={"username": "route_operator", "password": "123456"}).json()["data"]["token"]
+    route_operator_routes = client.get("/api/admin/menus/routes", headers={"Authorization": f"Bearer {route_operator_token}"})
+    route_operator_names = [item["name"] for item in route_operator_routes.json()["data"]["flatList"]]
+    assert "LogList" not in route_operator_names
+    assert "AccountSettings" not in route_operator_names
+    assert client.delete(f"/api/admin/accounts/{route_operator.json()['data']['account_id']}", headers=headers).status_code == 200
     agreement_viewer = client.post(
         "/api/admin/accounts",
         json={

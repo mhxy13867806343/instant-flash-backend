@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
@@ -19,7 +19,7 @@ from app.models.message import Message
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminPermission, AdminRegion, AdminRole, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -31,7 +31,7 @@ DEFAULT_AGREEMENTS = {
     "user": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement"]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -48,10 +48,11 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_menu", "permission_key": "menu", "label": "菜单管理", "description": "后台动态菜单配置", "sort": 130, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_message", "permission_key": "message", "label": "系统消息", "description": "系统消息推送", "sort": 140, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_agreement", "permission_key": "agreement", "label": "协议管理", "description": "用户协议和隐私协议", "sort": 150, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_log", "permission_key": "log", "label": "日志管理", "description": "后台登录日志与操作日志", "sort": 160, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "tag", "region", "message"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "account", "tag", "region", "message", "log"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
     {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
@@ -66,6 +67,8 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_announcement_single", "parent_id": "menu_announcement", "title": "单公告", "path": "/announcement/single", "name": "AnnouncementSingle", "component": "views/announcement/Single", "icon": "Promotion", "type": "menu", "permission": "announcement", "sort": 10},
     {"menu_id": "menu_announcement_list", "parent_id": "menu_announcement", "title": "公告列表", "path": "/announcement/list", "name": "AnnouncementList", "component": "views/announcement/List", "icon": "List", "type": "menu", "permission": "announcement", "sort": 20},
     {"menu_id": "menu_version", "parent_id": None, "title": "版本管理", "path": "/version", "name": "VersionList", "component": "views/version/List", "icon": "Upload", "type": "menu", "permission": "version", "sort": 80},
+    {"menu_id": "menu_account_profile", "parent_id": None, "title": "个人信息", "path": "account/profile", "name": "AccountProfile", "component": "views/account/Profile", "icon": "User", "type": "menu", "permission": None, "sort": 85, "visible": False, "remark": "个人中心动态路由，仅管理员和超级管理员可见"},
+    {"menu_id": "menu_account_settings", "parent_id": None, "title": "安全设置", "path": "account/settings", "name": "AccountSettings", "component": "views/account/Settings", "icon": "Lock", "type": "menu", "permission": None, "sort": 86, "visible": False, "remark": "个人中心动态路由，仅管理员和超级管理员可见"},
     {"menu_id": "menu_system", "parent_id": None, "title": "系统配置", "path": "/system", "name": "SystemConfig", "component": None, "redirect": "/tag", "icon": "Setting", "type": "catalog", "permission": None, "sort": 90},
     {"menu_id": "menu_tag", "parent_id": "menu_system", "title": "标签管理", "path": "/tag", "name": "TagList", "component": "views/tag/List", "icon": "PriceTag", "type": "menu", "permission": "tag", "sort": 10},
     {"menu_id": "menu_region", "parent_id": "menu_system", "title": "地区管理", "path": "/region", "name": "RegionList", "component": "views/region/List", "icon": "Location", "type": "menu", "permission": "region", "sort": 20},
@@ -74,7 +77,10 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_message", "parent_id": "menu_system", "title": "系统消息", "path": "/message", "name": "SysMessage", "component": "views/message/List", "icon": "Message", "type": "menu", "permission": "message", "sort": 50},
     {"menu_id": "menu_privacy", "parent_id": "menu_system", "title": "隐私协议", "path": "/agreement/privacy", "name": "PrivacyAgreement", "component": "views/agreement/Privacy", "icon": "Lock", "type": "menu", "permission": "agreement", "sort": 60},
     {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 70},
+    {"menu_id": "menu_log", "parent_id": "menu_system", "title": "日志管理", "path": "log/list", "name": "LogList", "component": "views/log/List", "icon": "Tickets", "type": "menu", "permission": "log", "sort": 80},
 ]
+ADMIN_ONLY_ROUTE_NAMES = {"AccountProfile", "AccountSettings", "LogList"}
+ADMIN_ROUTE_ROLES = {"admin", "superadmin"}
 
 
 class AdminLoginRequest(BaseModel):
@@ -84,6 +90,12 @@ class AdminLoginRequest(BaseModel):
 
 class AdminUserStatusUpdate(BaseModel):
     status: str = Field(pattern="^(normal|banned)$", title="用户状态", description="normal 表示正常，banned 表示禁用")
+
+
+class AdminSecuritySettingPayload(BaseModel):
+    mfaEnabled: bool | None = Field(default=None, title="二次登录验证", description="是否开启二次登录验证")
+    passwordPolicyEnabled: bool | None = Field(default=None, title="密码策略审核", description="是否开启密码策略审核")
+    remark: str | None = Field(default=None, title="备注", description="安全设置备注")
 
 
 class AgreementUpdate(BaseModel):
@@ -553,6 +565,59 @@ def permission_item(permission: AdminPermission) -> dict[str, Any]:
     }
 
 
+def operation_log_item(log: AdminOperationLog, current: bool = False) -> dict[str, Any]:
+    return {
+        "logId": log.log_id,
+        "accountId": log.account_id or "",
+        "username": log.username or "",
+        "category": log.category,
+        "action": log.action,
+        "title": f"{log.title}（当前登录）" if current else log.title,
+        "content": log.content or "",
+        "status": log.status,
+        "ip": log.ip or "",
+        "location": log.location or "",
+        "userAgent": log.user_agent or "",
+        "createdAt": format_time(log.create_time),
+        "time": format_time(log.create_time),
+        "isCurrent": current,
+    }
+
+
+def security_setting_item(setting: AdminSecuritySetting, account: AdminAccount) -> dict[str, Any]:
+    password_policy_passed = len(account.password or "") >= 6 and any(char.isdigit() for char in account.password or "")
+    score = 55
+    if setting.password_policy_enabled and password_policy_passed:
+        score += 30
+    if setting.mfa_enabled:
+        score += 15
+    score = min(score, 100)
+    if score >= 90:
+        level = "高"
+        levelKey = "high"
+    elif score >= 70:
+        level = "中等"
+        levelKey = "medium"
+    else:
+        level = "低"
+        levelKey = "low"
+    return {
+        "accountId": account.account_id,
+        "username": account.username,
+        "score": score,
+        "level": level,
+        "levelKey": levelKey,
+        "mfaEnabled": setting.mfa_enabled,
+        "passwordPolicyEnabled": setting.password_policy_enabled,
+        "passwordPolicyPassed": password_policy_passed,
+        "mfaStatusText": "已开启。登录时需要二次验证。" if setting.mfa_enabled else "未开启。仅支持账号密码登录。",
+        "passwordPolicyText": "已符合长度及混合字符要求。" if password_policy_passed else "密码强度较弱，建议包含数字和字母。",
+        "recommendation": "建议定期修改登录密码并绑定多因子安全设备。",
+        "remark": setting.remark or "",
+        "updatedAt": format_time(setting.update_time),
+    }
+
+
 def menu_item(menu: AdminMenu) -> dict[str, Any]:
     return {
         "menuId": menu.menu_id,
@@ -611,6 +676,8 @@ def permitted_menu_tree_items(menus: list[AdminMenu], account: AdminAccount, act
     is_superadmin = account.role == "superadmin"
 
     def can_access(menu: AdminMenu) -> bool:
+        if menu.name in ADMIN_ONLY_ROUTE_NAMES and account.role not in ADMIN_ROUTE_ROLES:
+            return False
         if not menu.permission:
             return True
         if menu.permission not in active_permissions:
@@ -796,16 +863,51 @@ def get_or_create_agreement(db: Session, agreement_type: str) -> AdminAgreement:
     summary="后台登录",
     description="后台管理系统登录接口。演示账号 admin，密码 123456。",
 )
-def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_db)]) -> dict[str, Any]:
+def admin_login(payload: AdminLoginRequest, db: Annotated[Session, Depends(get_db)], request: Request) -> dict[str, Any]:
     seed_accounts_if_empty(db)
     seed_permissions_if_empty(db)
     account = db.query(AdminAccount).filter(AdminAccount.username == payload.username).one_or_none()
     if account is None or account.password != payload.password:
+        write_admin_log(
+            db,
+            account=account,
+            username=payload.username,
+            category="login",
+            action="login_failed",
+            title="密码校验错误警告",
+            content="用户名或密码错误",
+            status_value="warning",
+            request=request,
+        )
+        db.commit()
         raise fail(status.HTTP_400_BAD_REQUEST, "用户名或密码错误")
     if account.status != "active":
+        write_admin_log(
+            db,
+            account=account,
+            username=payload.username,
+            category="login",
+            action="login_disabled",
+            title="禁用账号登录拦截",
+            content="账号已禁用",
+            status_value="warning",
+            request=request,
+        )
+        db.commit()
         raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
     account.last_login = format_time(utc_now())
     account.last_time = utc_now()
+    write_admin_log(
+        db,
+        account=account,
+        username=account.username,
+        category="login",
+        action="login_success",
+        title="登录系统成功",
+        content="后台账号登录成功",
+        status_value="success",
+        request=request,
+    )
     db.commit()
     token = create_access_token(f"admin:{account.username}", token_type="admin")
     return ok(
@@ -931,6 +1033,241 @@ def dashboard_trends(
             },
         }
     )
+
+
+@router.get(
+    "/security/overview",
+    response_model=AdminResponse,
+    summary="账号安全概览",
+    description="账号安全页概览接口，返回安全评分、二次验证、密码策略和最近 3 次登录日志。",
+)
+def admin_security_overview(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    setting = get_or_create_security_setting(db, account)
+    logs = (
+        db.query(AdminOperationLog)
+        .filter(AdminOperationLog.account_id == account.account_id, AdminOperationLog.category == "login")
+        .order_by(AdminOperationLog.create_time.desc())
+        .limit(3)
+        .all()
+    )
+    return ok({**security_setting_item(setting, account), "recentLoginLogs": [operation_log_item(log, index == 0) for index, log in enumerate(logs)]})
+
+
+@router.get(
+    "/security/settings",
+    response_model=AdminResponse,
+    summary="账号安全设置",
+    description="查询当前后台账号安全设置。",
+)
+def get_admin_security_settings(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    return ok(security_setting_item(get_or_create_security_setting(db, account), account))
+
+
+@router.put(
+    "/security/settings",
+    response_model=AdminResponse,
+    summary="修改账号安全设置",
+    description="修改当前后台账号二次登录验证和密码策略审核状态。",
+)
+def update_admin_security_settings(
+    payload: AdminSecuritySettingPayload,
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+    request: Request,
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    setting = get_or_create_security_setting(db, account)
+    if payload.mfaEnabled is not None:
+        setting.mfa_enabled = payload.mfaEnabled
+    if payload.passwordPolicyEnabled is not None:
+        setting.password_policy_enabled = payload.passwordPolicyEnabled
+    if payload.remark is not None:
+        setting.remark = payload.remark
+    setting.last_time = utc_now()
+    write_admin_log(
+        db,
+        account=account,
+        username=account.username,
+        category="security",
+        action="security_settings_update",
+        title="账号安全设置更新",
+        content="修改二次登录验证或密码策略审核设置",
+        status_value="success",
+        request=request,
+    )
+    db.commit()
+    db.refresh(setting)
+    return ok(security_setting_item(setting, account), "安全设置更新成功")
+
+
+@router.get(
+    "/security/login-logs",
+    response_model=AdminResponse,
+    summary="当前账号登录日志",
+    description="查询当前后台账号登录日志，安全设置页可用于最近登录记录展示。",
+)
+def list_current_admin_login_logs(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    query = db.query(AdminOperationLog).filter(AdminOperationLog.account_id == account.account_id, AdminOperationLog.category == "login")
+    total = query.count()
+    logs = query.order_by(AdminOperationLog.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [operation_log_item(log, index == 0 and page == 1) for index, log in enumerate(logs)], "total": total})
+
+
+@router.get(
+    "/account/profile",
+    response_model=AdminResponse,
+    summary="当前后台账号资料",
+    description="个人中心 - 个人信息接口，返回当前登录后台账号最新资料。",
+)
+def get_current_admin_profile(
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    return ok(account_item(get_current_admin_account(db, admin_subject)))
+
+
+@router.put(
+    "/account/profile",
+    response_model=AdminResponse,
+    summary="修改当前后台账号资料",
+    description="个人中心 - 修改昵称、头像、邮箱、手机号和备注；用户名、角色和权限不在这里修改。",
+)
+def update_current_admin_profile(
+    payload: AdminAccountPayload,
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+    request: Request,
+) -> dict[str, Any]:
+    account = get_current_admin_account(db, admin_subject)
+    if payload.nickname is not None:
+        account.nickname = payload.nickname
+    if payload.avatar is not None:
+        account.avatar = payload.avatar
+    if payload.email is not None:
+        account.email = payload.email
+    if payload.phone is not None:
+        account.phone = payload.phone
+    if payload.remark is not None:
+        account.remark = payload.remark
+    account.last_time = utc_now()
+    write_admin_log(
+        db,
+        account=account,
+        username=account.username,
+        category="account",
+        action="profile_update",
+        title="个人信息更新",
+        content="修改当前后台账号个人资料",
+        status_value="success",
+        request=request,
+    )
+    db.commit()
+    db.refresh(account)
+    return ok(account_item(account), "个人信息更新成功")
+
+
+@router.get(
+    "/logs",
+    response_model=AdminResponse,
+    summary="日志管理列表",
+    description="日志管理列表接口，支持按关键词、日志分类、状态和账号筛选。",
+)
+def list_admin_logs(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="标题、内容、动作、IP、归属地关键词")] = None,
+    category: Annotated[str | None, Query(description="日志分类：login/security/account 等")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="日志状态：success/warning/error")] = None,
+    username: Annotated[str | None, Query(description="后台账号用户名")] = None,
+    accountId: Annotated[str | None, Query(description="后台账号 ID")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=200, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(AdminOperationLog)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter(
+            or_(
+                AdminOperationLog.title.ilike(like_keyword),
+                AdminOperationLog.content.ilike(like_keyword),
+                AdminOperationLog.action.ilike(like_keyword),
+                AdminOperationLog.ip.ilike(like_keyword),
+                AdminOperationLog.location.ilike(like_keyword),
+            )
+        )
+    if category:
+        query = query.filter(AdminOperationLog.category == category)
+    if status_filter:
+        query = query.filter(AdminOperationLog.status == status_filter)
+    if username:
+        query = query.filter(AdminOperationLog.username.ilike(f"%{username}%"))
+    if accountId:
+        query = query.filter(AdminOperationLog.account_id == accountId)
+
+    total = query.count()
+    logs = query.order_by(AdminOperationLog.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [operation_log_item(log) for log in logs], "total": total})
+
+
+@router.get(
+    "/logs/{logId}",
+    response_model=AdminResponse,
+    summary="日志详情",
+    description="根据日志 ID 查询日志详情。",
+)
+def get_admin_log(
+    logId: Annotated[str, Path(description="日志 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    return ok(operation_log_item(get_log_or_404(db, logId)))
+
+
+@router.delete(
+    "/logs/{logId}",
+    response_model=AdminResponse,
+    summary="删除日志",
+    description="删除单条后台操作日志。",
+)
+def delete_admin_log(
+    logId: Annotated[str, Path(description="日志 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    log = get_log_or_404(db, logId)
+    db.delete(log)
+    db.commit()
+    return ok(None, "日志删除成功")
+
+
+@router.post(
+    "/logs/batch-delete",
+    response_model=AdminResponse,
+    summary="批量删除日志",
+    description="按日志 ID 批量删除后台操作日志。",
+)
+def batch_delete_admin_logs(
+    payload: BatchIdsPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    count = db.query(AdminOperationLog).filter(AdminOperationLog.log_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.commit()
+    return ok({"count": count}, "批量删除成功")
 
 
 @router.get(
@@ -1529,6 +1866,13 @@ def get_permission_or_404(db: Session, permission_id: str) -> AdminPermission:
     return permission
 
 
+def get_log_or_404(db: Session, log_id: str) -> AdminOperationLog:
+    log = db.query(AdminOperationLog).filter(AdminOperationLog.log_id == log_id).one_or_none()
+    if log is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "日志未找到")
+    return log
+
+
 def permission_key_in_use(db: Session, permission_key: str) -> bool:
     account_permissions = [row[0] or [] for row in db.query(AdminAccount.permissions).all()]
     role_permissions = [row[0] or [] for row in db.query(AdminRole.permissions).all()]
@@ -1561,6 +1905,68 @@ def get_current_admin_account(db: Session, username: str) -> AdminAccount:
     if account.status != "active":
         raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
     return account
+
+
+def get_or_create_security_setting(db: Session, account: AdminAccount) -> AdminSecuritySetting:
+    setting = db.query(AdminSecuritySetting).filter(AdminSecuritySetting.account_id == account.account_id).one_or_none()
+    if setting is not None:
+        return setting
+    setting = AdminSecuritySetting(account_id=account.account_id, mfa_enabled=False, password_policy_enabled=True, remark="")
+    db.add(setting)
+    db.commit()
+    db.refresh(setting)
+    return setting
+
+
+def request_ip(request: Request | None) -> str:
+    if request is None or request.client is None:
+        return "127.0.0.1"
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host or "127.0.0.1"
+
+
+def request_user_agent(request: Request | None) -> str:
+    if request is None:
+        return ""
+    return request.headers.get("user-agent", "")
+
+
+def ip_location(ip: str) -> str:
+    if ip.startswith("127.") or ip == "::1" or ip.startswith("192.168.") or ip.startswith("10."):
+        return "中国·浙江·杭州"
+    return "未知"
+
+
+def write_admin_log(
+    db: Session,
+    *,
+    account: AdminAccount | None,
+    username: str | None,
+    category: str,
+    action: str,
+    title: str,
+    content: str = "",
+    status_value: str = "success",
+    request: Request | None = None,
+) -> AdminOperationLog:
+    ip = request_ip(request)
+    log = AdminOperationLog(
+        log_id=new_business_id("log"),
+        account_id=account.account_id if account is not None else None,
+        username=account.username if account is not None else username,
+        category=category,
+        action=action,
+        title=title,
+        content=content,
+        status=status_value,
+        ip=ip,
+        location=ip_location(ip),
+        user_agent=request_user_agent(request),
+    )
+    db.add(log)
+    return log
 
 
 def validate_menu_parent(db: Session, parent_id: str | None, self_id: str | None = None) -> None:
