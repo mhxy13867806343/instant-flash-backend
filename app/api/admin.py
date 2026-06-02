@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 from datetime import datetime, timedelta
 from pathlib import Path as FilePath
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
@@ -297,6 +299,164 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         "bio": "",
         "gender": user.gender or "保密",
     }
+
+
+USER_EXPORT_HEADERS = [
+    ("用户ID", "userId"),
+    ("昵称", "nickname"),
+    ("手机号", "phone"),
+    ("openid", "openid"),
+    ("unionid", "unionid"),
+    ("性别", "gender"),
+    ("省份", "province"),
+    ("城市", "city"),
+    ("区县", "district"),
+    ("账号状态", "statusText"),
+    ("注册时间", "createdAt"),
+    ("更新时间", "updatedAt"),
+]
+USER_IMPORT_HEADER_ALIASES = {
+    "用户ID": "userId",
+    "用户Id": "userId",
+    "userId": "userId",
+    "user_id": "userId",
+    "openid": "openid",
+    "unionid": "unionid",
+    "手机号": "phone",
+    "手机号码": "phone",
+    "phone": "phone",
+    "昵称": "nickname",
+    "用户昵称": "nickname",
+    "nickname": "nickname",
+    "头像": "avatar",
+    "avatar": "avatar",
+    "性别": "gender",
+    "gender": "gender",
+    "省份": "province",
+    "province": "province",
+    "城市": "city",
+    "city": "city",
+    "区县": "district",
+    "地区": "district",
+    "district": "district",
+    "账号状态": "status",
+    "状态": "status",
+    "status": "status",
+    "是否启用": "isActive",
+    "isActive": "isActive",
+}
+USER_IMPORT_FIELDS = {"userId", "openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district", "status", "isActive"}
+
+
+def export_user_row(user: User) -> dict[str, str]:
+    return {
+        "userId": user.user_id,
+        "nickname": user.nickname or "",
+        "phone": user.phone or "",
+        "openid": user.openid or "",
+        "unionid": user.unionid or "",
+        "gender": user.gender or "",
+        "province": user.province or "",
+        "city": user.city or "",
+        "district": user.district or "",
+        "statusText": "正常" if user.is_active else "禁用",
+        "createdAt": format_time(user.create_time),
+        "updatedAt": format_time(user.update_time),
+    }
+
+
+def normalize_excel_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def normalize_user_status(value: str) -> bool | None:
+    if not value:
+        return None
+    lowered = value.strip().lower()
+    if lowered in {"normal", "active", "enabled", "true", "1", "正常", "启用", "已启用"}:
+        return True
+    if lowered in {"banned", "disabled", "false", "0", "禁用", "已禁用", "封禁"}:
+        return False
+    raise ValueError("账号状态只能填写 正常/禁用 或 normal/banned")
+
+
+def read_user_import_rows(filename: str, content: bytes) -> list[dict[str, str]]:
+    suffix = FilePath(filename).suffix.lower()
+    if suffix not in {".xls", ".xlsx"}:
+        raise fail(status.HTTP_400_BAD_REQUEST, "导入文件格式不正确，仅支持 .xls 或 .xlsx")
+    if not content:
+        raise fail(status.HTTP_400_BAD_REQUEST, "导入文件不能为空")
+    try:
+        if suffix == ".xlsx":
+            from openpyxl import load_workbook
+
+            workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            sheet = workbook.active
+            raw_rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+        else:
+            import xlrd
+
+            workbook = xlrd.open_workbook(file_contents=content)
+            sheet = workbook.sheet_by_index(0)
+            raw_rows = [sheet.row_values(index) for index in range(sheet.nrows)]
+    except Exception as exc:
+        raise fail(status.HTTP_400_BAD_REQUEST, "文件格式无法解析，请确认是有效的 .xls 或 .xlsx 文件") from exc
+
+    raw_rows = [row for row in raw_rows if any(normalize_excel_value(cell) for cell in row)]
+    if not raw_rows:
+        raise fail(status.HTTP_400_BAD_REQUEST, "导入文件没有可读取的数据")
+    header_values = [normalize_excel_value(cell) for cell in raw_rows[0]]
+    fields = [USER_IMPORT_HEADER_ALIASES.get(header) for header in header_values]
+    if not any(field in USER_IMPORT_FIELDS for field in fields):
+        raise fail(status.HTTP_400_BAD_REQUEST, "表头格式不正确，请包含 用户ID、昵称、手机号、账号状态 等字段")
+
+    rows: list[dict[str, str]] = []
+    for raw_row in raw_rows[1:]:
+        item: dict[str, str] = {}
+        for index, field in enumerate(fields):
+            if not field or field not in USER_IMPORT_FIELDS:
+                continue
+            item[field] = normalize_excel_value(raw_row[index] if index < len(raw_row) else None)
+        if any(item.values()):
+            rows.append(item)
+    if not rows:
+        raise fail(status.HTTP_400_BAD_REQUEST, "导入文件没有有效用户数据")
+    return rows
+
+
+def export_users_xlsx(users: list[User]) -> bytes:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "用户列表"
+    sheet.append([header for header, _ in USER_EXPORT_HEADERS])
+    for user in users:
+        data = export_user_row(user)
+        sheet.append([data.get(field, "") for _, field in USER_EXPORT_HEADERS])
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def export_users_xls(users: list[User]) -> bytes:
+    import xlwt
+
+    workbook = xlwt.Workbook()
+    sheet = workbook.add_sheet("用户列表")
+    for column, (header, _) in enumerate(USER_EXPORT_HEADERS):
+        sheet.write(0, column, header)
+    for row_index, user in enumerate(users, start=1):
+        data = export_user_row(user)
+        for column, (_, field) in enumerate(USER_EXPORT_HEADERS):
+            sheet.write(row_index, column, data.get(field, ""))
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 def post_status(post: Post) -> str:
@@ -1443,6 +1603,115 @@ def list_admin_users(
     total = query.count()
     users = query.order_by(User.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
     return ok({"list": [user_item(db, user) for user in users], "total": total})
+
+
+@router.get(
+    "/users/export",
+    summary="导出用户",
+    description="导出用户列表，支持 .xls 和 .xlsx；默认导出 .xls。",
+)
+def export_admin_users(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    format: Annotated[str, Query(pattern="^(xls|xlsx)$", description="导出格式：xls 或 xlsx")] = "xls",
+    nickname: Annotated[str | None, Query(description="用户昵称，模糊匹配")] = None,
+    phone: Annotated[str | None, Query(description="手机号，模糊匹配")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="账号状态：normal 正常，banned 禁用")] = None,
+) -> StreamingResponse:
+    query = db.query(User)
+    if nickname:
+        query = query.filter(User.nickname.ilike(f"%{nickname}%"))
+    if phone:
+        query = query.filter(User.phone.ilike(f"%{phone}%"))
+    if status_filter == "normal":
+        query = query.filter(User.is_active.is_(True))
+    elif status_filter == "banned":
+        query = query.filter(User.is_active.is_(False))
+
+    users = query.order_by(User.create_time.desc()).all()
+    if format == "xlsx":
+        content = export_users_xlsx(users)
+        filename = "instant-flash-users.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = export_users_xls(users)
+        filename = "instant-flash-users.xls"
+        media_type = "application/vnd.ms-excel"
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/users/import",
+    response_model=AdminResponse,
+    summary="导入用户",
+    description="导入用户 Excel，支持 .xls 和 .xlsx。表头支持中文或驼峰字段，例如 用户ID、昵称、手机号、账号状态。",
+)
+def import_admin_users(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    file: Annotated[UploadFile, File(description="用户 Excel 文件，仅支持 .xls/.xlsx")],
+) -> dict[str, Any]:
+    rows = read_user_import_rows(file.filename or "", file.file.read())
+    errors: list[dict[str, Any]] = []
+    created = 0
+    updated = 0
+    for index, row in enumerate(rows, start=2):
+        user_id = row.get("userId", "")
+        phone = row.get("phone", "")
+        openid = row.get("openid", "")
+        unionid = row.get("unionid", "")
+        if not any([user_id, phone, openid, unionid]):
+            errors.append({"row": index, "message": "至少填写 用户ID、手机号、openid、unionid 中的一个"})
+            continue
+        try:
+            db.flush()
+            conditions = []
+            if user_id:
+                conditions.append(User.user_id == user_id)
+            if phone:
+                conditions.append(User.phone == phone)
+            if openid:
+                conditions.append(User.openid == openid)
+            if unionid:
+                conditions.append(User.unionid == unionid)
+            matches = db.query(User).filter(or_(*conditions)).all()
+            if len({user.id for user in matches}) > 1:
+                errors.append({"row": index, "message": "用户ID/手机号/openid/unionid 命中多个用户，请检查唯一字段"})
+                continue
+            user = matches[0] if matches else None
+            if user is None:
+                user = User(user_id=user_id or new_business_id("usr"))
+                db.add(user)
+                created += 1
+            else:
+                updated += 1
+
+            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "province", "city", "district"):
+                value = row.get(field)
+                if value:
+                    setattr(user, field, value)
+            status_value = row.get("status", "") or row.get("isActive", "")
+            active = normalize_user_status(status_value)
+            if active is not None:
+                user.is_active = active
+            user.last_time = utc_now()
+        except ValueError as exc:
+            errors.append({"row": index, "message": str(exc)})
+        except Exception as exc:
+            errors.append({"row": index, "message": f"导入失败：{exc}"})
+
+    if errors:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": 400, "message": "导入失败，请检查错误行", "data": {"errors": errors}},
+        )
+    db.commit()
+    return ok({"created": created, "updated": updated, "total": created + updated, "errors": []}, "用户导入成功")
 
 
 @router.get(

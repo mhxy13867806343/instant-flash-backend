@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import io
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
@@ -157,6 +158,44 @@ def test_admin_flow() -> None:
     assert users.json()["data"]["list"][0]["status"] == "normal"
     assert users.json()["data"]["list"][0]["userId"] == "usr_admin_target"
     assert "user_id" not in users.json()["data"]["list"][0]
+    export_xls = client.get("/api/admin/users/export", params={"format": "xls"}, headers=admin_headers)
+    assert export_xls.status_code == 200
+    assert export_xls.headers["content-type"].startswith("application/vnd.ms-excel")
+    assert export_xls.content.startswith(b"\xd0\xcf")
+    export_xlsx = client.get("/api/admin/users/export", params={"format": "xlsx"}, headers=admin_headers)
+    assert export_xlsx.status_code == 200
+    assert export_xlsx.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert export_xlsx.content.startswith(b"PK")
+    bad_import = client.post(
+        "/api/admin/users/import",
+        files={"file": ("users.txt", b"bad file", "text/plain")},
+        headers=admin_headers,
+    )
+    assert bad_import.status_code == 400
+    assert bad_import.json()["message"] == "导入文件格式不正确，仅支持 .xls 或 .xlsx"
+
+    import xlwt
+
+    workbook = xlwt.Workbook()
+    sheet = workbook.add_sheet("用户导入")
+    for column, header in enumerate(["用户ID", "昵称", "手机号", "账号状态", "省份", "城市"]):
+        sheet.write(0, column, header)
+    for column, value in enumerate(["usr_import_xls", "导入用户", "13900000000", "禁用", "浙江", "杭州"]):
+        sheet.write(1, column, value)
+    import_file = io.BytesIO()
+    workbook.save(import_file)
+    import_file.seek(0)
+    import_xls = client.post(
+        "/api/admin/users/import",
+        files={"file": ("users.xls", import_file.read(), "application/vnd.ms-excel")},
+        headers=admin_headers,
+    )
+    assert import_xls.status_code == 200
+    assert import_xls.json()["data"]["created"] == 1
+    imported_user = client.get("/api/admin/users/usr_import_xls", headers=admin_headers)
+    assert imported_user.status_code == 200
+    assert imported_user.json()["data"]["nickname"] == "导入用户"
+    assert imported_user.json()["data"]["status"] == "banned"
 
     banned = client.put(
         "/api/admin/users/usr_admin_target",
