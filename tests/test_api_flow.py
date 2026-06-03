@@ -149,7 +149,7 @@ def test_admin_flow() -> None:
 
     token_response = client.post(
         "/api/auth/dev-token",
-        json={"userId": "usr_admin_target", "nickname": "Target", "phone": "13812345678"},
+        json={"userId": "usr_admin_target", "nickname": "Target", "phone": "13812345678", "code": "123456"},
     )
     user_token = token_response.json()["accessToken"]
     user_headers = {"Authorization": f"Bearer {user_token}"}
@@ -1297,7 +1297,7 @@ def test_dev_token_unique_identity_conflict_returns_message() -> None:
 
     created = client.post(
         "/api/auth/dev-token",
-        json={"userId": "usr_a", "openid": "openid_same", "phone": "13800000000"},
+        json={"userId": "usr_a", "openid": "openid_same", "phone": "13800000000", "code": "123456"},
     )
     assert created.status_code == 200
 
@@ -1334,12 +1334,25 @@ def test_mobile_phone_login_uses_mp_user_id_and_client_type() -> None:
     Base.metadata.create_all(bind=engine)
     client = TestClient(app)
 
+    bad_code = client.post(
+        "/api/auth/dev-token",
+        json={
+            "userId": "h5-18072783978",
+            "nickname": "移动端用户",
+            "clientType": "安卓",
+            "code": "000000",
+        },
+    )
+    assert bad_code.status_code == 400
+    assert bad_code.json()["message"] == "验证码错误"
+
     response = client.post(
         "/api/auth/dev-token",
         json={
             "userId": "h5-18072783978",
             "nickname": "移动端用户",
             "clientType": "安卓",
+            "code": "123456",
         },
     )
     assert response.status_code == 200
@@ -1365,7 +1378,7 @@ def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
 
     login = client.post(
         "/api/auth/dev-token",
-        json={"userId": "h5-18072783979", "nickname": "绑定用户", "clientType": "android"},
+        json={"userId": "h5-18072783979", "nickname": "绑定用户", "clientType": "android", "code": "123456"},
     )
     assert login.status_code == 200
     assert login.json()["userId"] == "mp-18072783979"
@@ -1373,23 +1386,15 @@ def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
 
     same_phone = client.post(
         "/api/user/bindPhone",
-        json={"oldPhone": "180 7278 3979", "newPhone": "18072783979", "code": "123456"},
+        json={"newPhone": "18072783979", "code": "123456"},
         headers=headers,
     )
     assert same_phone.status_code == 400
     assert same_phone.json()["message"] == "新手机号不能和当前手机号相同"
 
-    wrong_old_phone = client.post(
-        "/api/user/bindPhone",
-        json={"oldPhone": "18072783970", "newPhone": "18072783980", "code": "123456"},
-        headers=headers,
-    )
-    assert wrong_old_phone.status_code == 400
-    assert wrong_old_phone.json()["message"] == "旧手机号不正确"
-
     wrong_code = client.post(
         "/api/user/bindPhone",
-        json={"oldPhone": "18072783979", "newPhone": "18072783980", "code": "000000"},
+        json={"newPhone": "18072783980", "code": "000000"},
         headers=headers,
     )
     assert wrong_code.status_code == 400
@@ -1397,7 +1402,7 @@ def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
 
     bind = client.post(
         "/api/user/bindPhone",
-        json={"oldPhone": "180 7278 3979", "newPhone": "180 7278 3980", "code": "123456"},
+        json={"newPhone": "180 7278 3980", "code": "123456"},
         headers=headers,
     )
     assert bind.status_code == 200
@@ -1426,7 +1431,7 @@ def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
 
     repeat_bind = client.post(
         "/api/user/bindPhone",
-        json={"oldPhone": "18072783979", "newPhone": "18072783982", "code": "123456"},
+        json={"newPhone": "18072783982", "code": "123456"},
         headers=new_headers,
     )
     assert repeat_bind.status_code == 400
@@ -1434,14 +1439,14 @@ def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
 
     old_phone_login = client.post(
         "/api/auth/dev-token",
-        json={"phone": "18072783979", "clientType": "android"},
+        json={"phone": "18072783979", "clientType": "android", "code": "123456"},
     )
     assert old_phone_login.status_code == 400
     assert old_phone_login.json()["message"] == "该手机号已换绑，请使用新手机号登录"
 
     new_phone_login = client.post(
         "/api/auth/dev-token",
-        json={"phone": "18072783980", "clientType": "android"},
+        json={"phone": "18072783980", "clientType": "android", "code": "123456"},
     )
     assert new_phone_login.status_code == 200
     assert new_phone_login.json()["userId"] == "mp-18072783979"
@@ -1461,17 +1466,17 @@ def test_user_bind_phone_rejects_duplicate_phone() -> None:
 
     first = client.post(
         "/api/auth/dev-token",
-        json={"userId": "mp-18072783981", "phone": "18072783981", "nickname": "已有手机号用户"},
+        json={"userId": "mp-18072783981", "phone": "18072783981", "nickname": "已有手机号用户", "code": "123456"},
     )
     assert first.status_code == 200
     second = client.post(
         "/api/auth/dev-token",
-        json={"userId": "h5-18072783982", "nickname": "另一个用户", "clientType": "android"},
+        json={"userId": "h5-18072783982", "nickname": "另一个用户", "clientType": "android", "code": "123456"},
     )
     assert second.status_code == 200
     response = client.post(
         "/api/user/bindPhone",
-        json={"oldPhone": "18072783982", "newPhone": "18072783981", "code": "123456"},
+        json={"newPhone": "18072783981", "code": "123456"},
         headers={"Authorization": f"Bearer {second.json()['accessToken']}"},
     )
     assert response.status_code == 400

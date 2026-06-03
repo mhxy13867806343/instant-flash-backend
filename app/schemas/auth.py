@@ -17,6 +17,13 @@ class DevTokenRequest(BaseModel):
     openid: str | None = Field(default=None, max_length=128, title="微信 OpenID", description="开发调试用 OpenID")
     unionid: str | None = Field(default=None, max_length=128, title="微信 UnionID", description="开发调试用 UnionID")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="用户手机号")
+    code: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("code", "verifyCode", "verificationCode", "smsCode"),
+        max_length=16,
+        title="验证码",
+        description="手机号登录验证码；测试环境固定 123456",
+    )
     nickname: str | None = Field(default=None, max_length=64, title="昵称", description="用户昵称")
     avatar: str | None = Field(default=None, title="头像", description="用户头像 URL")
     bio: str | None = Field(default=None, max_length=300, title="个性签名", description="用户个人简介/个性签名")

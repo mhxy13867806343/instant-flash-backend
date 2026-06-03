@@ -97,12 +97,14 @@ def user_logout(
     "/dev-token",
     response_model=TokenResponse,
     summary="开发调试 Token",
-    description="开发联调用接口：创建或更新测试用户，并返回 Bearer Token。",
+    description="开发联调用接口：手机号登录需要传 phone/code，测试验证码固定 123456；也可创建或更新测试用户，并返回 Bearer Token。",
 )
 def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
     client_type = normalize_client_type(payload.client_type)
     client_subtype = normalize_client_subtype(payload.client_subtype)
     inferred_user_id, phone = infer_mobile_identity(payload.user_id, payload.phone, client_type)
+    if phone and payload.code != "123456":
+        raise fail(status.HTTP_400_BAD_REQUEST, "验证码错误")
     user_id = inferred_user_id or new_business_id("usr")
     lookup_conditions = [User.user_id == user_id]
     legacy_phone = phone_from_user_id(payload.user_id)

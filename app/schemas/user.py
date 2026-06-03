@@ -53,16 +53,9 @@ class UserProfileUpdate(BaseModel):
 class UserBindPhoneRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    old_phone: str = Field(
-        alias="oldPhone",
-        validation_alias=AliasChoices("oldPhone", "old_phone", "phone", "phoneNumber", "mobile", "mobilePhone"),
-        max_length=32,
-        title="旧手机号",
-        description="当前已绑定/登录使用的旧手机号，兼容 phone/phoneNumber",
-    )
     new_phone: str = Field(
         alias="newPhone",
-        validation_alias=AliasChoices("newPhone", "new_phone", "targetPhone", "target_phone"),
+        validation_alias=AliasChoices("newPhone", "new_phone", "phone", "phoneNumber", "mobile", "mobilePhone", "targetPhone", "target_phone"),
         max_length=32,
         title="新手机号",
         description="需要换绑的新手机号",

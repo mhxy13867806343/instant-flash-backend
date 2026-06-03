@@ -128,7 +128,7 @@ def upload_profile_avatar(
 @router.post(
     "/bindPhone",
     summary="绑定手机号",
-    description="用户端换绑手机号。请求传 oldPhone、newPhone、code；测试验证码固定 123456。旧手机号保留展示，新手机号写入 newPhone，之后登录使用新手机号。",
+    description="用户端换绑手机号。旧手机号从当前登录用户获取；请求传 newPhone、code；测试验证码固定 123456。旧手机号保留展示，新手机号写入 newPhone，之后登录使用新手机号。",
 )
 @router.post(
     "/bind-phone",
@@ -139,20 +139,17 @@ def bind_phone(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> dict[str, object]:
-    old_phone = normalize_phone(payload.old_phone)
     new_phone = normalize_phone(payload.new_phone)
-    if not old_phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "旧手机号不能为空")
     if not new_phone:
         raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能为空")
     if payload.code != "123456":
         raise fail(status.HTTP_400_BAD_REQUEST, "验证码错误")
 
     current_phone = current_user.phone or phone_from_user_id(current_user.user_id)
+    if not current_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "当前账号未绑定手机号，不能换绑")
     if current_user.new_phone:
         raise fail(status.HTTP_400_BAD_REQUEST, "已绑定新手机号，不能重复绑定")
-    if old_phone != current_phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "旧手机号不正确")
     if new_phone == current_phone:
         raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能和当前手机号相同")
 
