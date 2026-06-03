@@ -108,6 +108,49 @@ def _comment_tree(db: Session, comments: list[Comment]) -> list[CommentOut]:
     return roots
 
 
+def _comment_nodes(db: Session, comments: list[Comment]) -> dict[str, CommentOut]:
+    user_ids = {comment.user_id for comment in comments}
+    user_ids.update(comment.reply_to_user_id for comment in comments if comment.reply_to_user_id)
+    users = {
+        user.user_id: user
+        for user in db.query(User).filter(User.user_id.in_(user_ids)).all()
+    } if user_ids else {}
+    return {
+        comment.comment_id: comment_out(
+            comment,
+            users.get(comment.user_id),
+            users.get(comment.reply_to_user_id),
+        )
+        for comment in comments
+    }
+
+
+def _thread_root_id(comments_by_id: dict[str, Comment], comment: Comment) -> str:
+    seen = {comment.comment_id}
+    current = comment
+    while current.parent_id and current.parent_id in comments_by_id and current.parent_id not in seen:
+        current = comments_by_id[current.parent_id]
+        seen.add(current.comment_id)
+    return current.comment_id
+
+
+def _flatten_comment_replies(db: Session, comments: list[Comment], root_comment_id: str) -> list[CommentOut]:
+    nodes = _comment_nodes(db, comments)
+    comments_by_id = {comment.comment_id: comment for comment in comments}
+    replies: list[CommentOut] = []
+    for comment in sorted(comments, key=lambda item: item.create_time):
+        if comment.comment_id == root_comment_id:
+            continue
+        if _thread_root_id(comments_by_id, comment) != root_comment_id:
+            continue
+        node = nodes[comment.comment_id]
+        node.children = []
+        node.replies = []
+        node.replyCount = 0
+        replies.append(node)
+    return replies
+
+
 def _resolve_parent_comment(db: Session, post_id: str, payload: CommentCreate) -> Comment | None:
     if payload.parentId:
         parent = (
@@ -289,6 +332,63 @@ def list_post_comments(
         page=resolved_page,
         pageSize=resolved_limit,
         hasMore=resolved_offset + resolved_limit < len(roots),
+    )
+
+
+@router.get(
+    "/{postId}/comments/{commentId}/replies",
+    response_model=CommentListResponse,
+    summary="评论回复分页列表",
+    description="点击某条评论的回复入口时调用。返回该评论所在一级评论下的所有内部回复，按时间平铺分页展示。",
+)
+@router.get(
+    "/{postId}/comments/{commentId}/children",
+    response_model=CommentListResponse,
+    include_in_schema=False,
+)
+def list_comment_replies(
+    postId: Annotated[str, Path(description="内容 ID")],
+    commentId: Annotated[str, Path(description="评论 ID")],
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    page: Annotated[int | None, Query(ge=1, description="页码")] = None,
+    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量")] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量，兼容移动端分页")] = 20,
+    offset: Annotated[int, Query(ge=0, description="偏移量，兼容移动端分页")] = 0,
+) -> CommentListResponse:
+    post_id = postId
+    comment_id = commentId
+    _get_visible_post(db, post_id)
+    resolved_limit, resolved_offset = _page_to_limit_offset(page, page_size, limit, offset)
+    comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id, Comment.is_deleted.is_(False))
+        .order_by(Comment.create_time.asc())
+        .all()
+    )
+    comments_by_id = {comment.comment_id: comment for comment in comments}
+    source_comment = comments_by_id.get(comment_id)
+    if source_comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    root_comment_id = _thread_root_id(comments_by_id, source_comment)
+    replies = _flatten_comment_replies(db, comments, root_comment_id)
+    page_items = replies[resolved_offset : resolved_offset + resolved_limit]
+    resolved_page = (resolved_offset // resolved_limit) + 1
+    response.headers["X-Total-Count"] = str(len(replies))
+    response.headers["X-Comment-Total"] = str(len(replies))
+    response.headers["X-Limit"] = str(resolved_limit)
+    response.headers["X-Offset"] = str(resolved_offset)
+    response.headers["X-Root-Comment-Id"] = root_comment_id
+    return CommentListResponse(
+        comments=page_items,
+        items=page_items,
+        total=len(replies),
+        commentTotal=len(replies),
+        limit=resolved_limit,
+        offset=resolved_offset,
+        page=resolved_page,
+        pageSize=resolved_limit,
+        hasMore=resolved_offset + resolved_limit < len(replies),
     )
 
 

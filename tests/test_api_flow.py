@@ -453,6 +453,27 @@ def test_comment_replies_are_nested_under_parent() -> None:
     assert offset_comments.json()["list"][0]["commentId"] == second_parent.json()["commentId"]
     assert offset_comments.json()["hasMore"] is False
 
+    replies_page = client.get(
+        f"/api/posts/{post_id}/comments/{parent.json()['commentId']}/replies?page=1&pageSize=1"
+    )
+    assert replies_page.status_code == 200
+    assert replies_page.headers["X-Total-Count"] == "2"
+    assert replies_page.headers["X-Root-Comment-Id"] == parent.json()["commentId"]
+    assert replies_page.json()["total"] == 2
+    assert replies_page.json()["limit"] == 1
+    assert replies_page.json()["hasMore"] is True
+    assert replies_page.json()["list"][0]["commentId"] == reply.json()["commentId"]
+
+    nested_replies_page = client.get(
+        f"/api/posts/{post_id}/comments/{nested_reply.json()['commentId']}/replies?limit=10&offset=0"
+    )
+    assert nested_replies_page.status_code == 200
+    assert nested_replies_page.headers["X-Root-Comment-Id"] == parent.json()["commentId"]
+    assert [item["commentId"] for item in nested_replies_page.json()["list"]] == [
+        reply.json()["commentId"],
+        nested_reply.json()["commentId"],
+    ]
+
 
 def test_admin_like_share_lists_and_routes() -> None:
     Base.metadata.drop_all(bind=engine)
