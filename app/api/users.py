@@ -11,10 +11,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.admin import fail, read_user_import_rows, user_export_response
-from app.api.auth import migrate_mobile_user_id
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
-from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone
+from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.core.security import create_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -129,7 +128,7 @@ def upload_profile_avatar(
 @router.post(
     "/bindPhone",
     summary="绑定手机号",
-    description="用户端绑定手机号。手机号会规范化保存；移动端用户绑定后业务用户 ID 统一为 mp-手机号，并返回新的 token。",
+    description="用户端换绑手机号。请求传 oldPhone、newPhone、code；测试验证码固定 123456。旧手机号保留展示，新手机号写入 newPhone，之后登录使用新手机号。",
 )
 @router.post(
     "/bind-phone",
@@ -140,27 +139,38 @@ def bind_phone(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> dict[str, object]:
-    phone = normalize_phone(payload.phone)
-    if not phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "手机号不能为空")
+    old_phone = normalize_phone(payload.old_phone)
+    new_phone = normalize_phone(payload.new_phone)
+    if not old_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "旧手机号不能为空")
+    if not new_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能为空")
+    if payload.code != "123456":
+        raise fail(status.HTTP_400_BAD_REQUEST, "验证码错误")
 
-    target_user_id = mobile_user_id(phone)
+    current_phone = current_user.phone or phone_from_user_id(current_user.user_id)
+    if current_user.new_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "已绑定新手机号，不能重复绑定")
+    if old_phone != current_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "旧手机号不正确")
+    if new_phone == current_phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能和当前手机号相同")
+
+    target_user_id = mobile_user_id(new_phone)
     existing = (
         db.query(User)
-        .filter(or_(User.phone == phone, User.user_id == target_user_id), User.id != current_user.id)
+        .filter(or_(User.phone == new_phone, User.new_phone == new_phone, User.user_id == target_user_id), User.id != current_user.id)
         .first()
     )
     if existing is not None:
         raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已绑定其他用户")
 
-    user = migrate_mobile_user_id(db, current_user, target_user_id)
-    user.phone = phone
-    client_type = normalize_client_type(payload.client_type)
-    client_subtype = normalize_client_subtype(payload.client_subtype)
-    if client_type:
-        user.client_type = client_type
-    if client_subtype:
-        user.client_subtype = client_subtype
+    user = current_user
+    if current_phone:
+        user.phone = current_phone
+        user.new_phone = new_phone
+    else:
+        user.phone = new_phone
     user.last_time = utc_now()
     db.commit()
     db.refresh(user)
@@ -173,6 +183,7 @@ def bind_phone(
             "profile": profile,
             "userId": user.user_id,
             "phone": user.phone,
+            "newPhone": user.new_phone,
             "accessToken": token,
             "token": token,
         },

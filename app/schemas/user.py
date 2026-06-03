@@ -53,27 +53,25 @@ class UserProfileUpdate(BaseModel):
 class UserBindPhoneRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    phone: str = Field(
-        validation_alias=AliasChoices("phone", "phoneNumber", "mobile", "mobilePhone"),
+    old_phone: str = Field(
+        alias="oldPhone",
+        validation_alias=AliasChoices("oldPhone", "old_phone", "phone", "phoneNumber", "mobile", "mobilePhone"),
         max_length=32,
-        title="手机号",
-        description="需要绑定的手机号，兼容 phoneNumber/mobile/mobilePhone",
+        title="旧手机号",
+        description="当前已绑定/登录使用的旧手机号，兼容 phone/phoneNumber",
     )
-    client_type: str | None = Field(
-        default=None,
-        alias="clientType",
-        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+    new_phone: str = Field(
+        alias="newPhone",
+        validation_alias=AliasChoices("newPhone", "new_phone", "targetPhone", "target_phone"),
         max_length=32,
-        title="移动端类型",
-        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+        title="新手机号",
+        description="需要换绑的新手机号",
     )
-    client_subtype: str | None = Field(
-        default=None,
-        alias="clientSubtype",
-        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
-        max_length=64,
-        title="小程序类型",
-        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    code: str = Field(
+        validation_alias=AliasChoices("code", "verifyCode", "verificationCode", "smsCode"),
+        max_length=16,
+        title="验证码",
+        description="测试环境固定验证码：123456",
     )
 
 
@@ -84,6 +82,7 @@ class UserProfile(BaseModel):
     openid: str | None = Field(default=None, title="微信 OpenID", description="微信小程序 OpenID")
     unionid: str | None = Field(default=None, title="微信 UnionID", description="微信开放平台 UnionID")
     phone: str | None = Field(default=None, title="手机号", description="用户手机号")
+    newPhone: str | None = Field(default=None, title="新手机号", description="用户绑定的新手机号；绑定后登录使用该手机号")
     clientType: str | None = Field(default=None, title="移动端类型", description="android/ios/harmonyos/miniprogram/h5")
     clientSubtype: str | None = Field(default=None, title="小程序类型", description="wechat/alipay/douyin/qq/baidu 等")
     nickname: str | None = Field(default=None, title="昵称", description="用户昵称")

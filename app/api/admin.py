@@ -307,7 +307,7 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         "nickname": user.nickname or "即闪用户",
         "avatar": user.avatar or "",
         "phone": phone,
-        "newPhone": "",
+        "newPhone": user.new_phone or "",
         "clientType": user.client_type or "",
         "clientSubtype": user.client_subtype or "",
         "status": "normal" if user.is_active else "banned",

@@ -14,6 +14,7 @@ class User(TimestampMixin, Base):
     openid: Mapped[str | None] = mapped_column(String(128), unique=True)
     unionid: Mapped[str | None] = mapped_column(String(128), unique=True)
     phone: Mapped[str | None] = mapped_column(String(32), unique=True)
+    new_phone: Mapped[str | None] = mapped_column(String(32), unique=True)
     nickname: Mapped[str | None] = mapped_column(String(64))
     avatar: Mapped[str | None] = mapped_column(Text)
     gender: Mapped[str | None] = mapped_column(String(16))

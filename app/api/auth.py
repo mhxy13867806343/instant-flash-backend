@@ -58,6 +58,27 @@ def infer_mobile_identity(user_id: str | None, phone: str | None, client_type: s
     return user_id, normalized_phone
 
 
+def phone_login_conditions(phone: str) -> list[object]:
+    return [
+        User.new_phone == phone,
+        User.phone == phone,
+        User.user_id == mobile_user_id(phone),
+        User.user_id == f"h5-{phone}",
+    ]
+
+
+def resolve_phone_login_user(matches: list[User], phone: str) -> User | None:
+    if not matches:
+        return None
+    new_phone_matches = [user for user in matches if user.new_phone == phone]
+    if new_phone_matches:
+        return new_phone_matches[0]
+    active_matches = [user for user in matches if not user.new_phone]
+    if active_matches:
+        return active_matches[0]
+    return None
+
+
 @router.post(
     "/logout",
     summary="用户端退出登录",
@@ -92,9 +113,15 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
     if payload.unionid:
         lookup_conditions.append(User.unionid == payload.unionid)
     if phone:
-        lookup_conditions.append(User.phone == phone)
+        lookup_conditions.extend(phone_login_conditions(phone))
 
     matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
+    if phone:
+        resolved_phone_user = resolve_phone_login_user(matched_users, phone)
+        if resolved_phone_user is None and not any([payload.user_id, payload.openid, payload.unionid]):
+            raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已换绑，请使用新手机号登录")
+        if resolved_phone_user is not None:
+            matched_users = [resolved_phone_user]
     if len({user.id for user in matched_users}) > 1:
         raise fail(status.HTTP_400_BAD_REQUEST, "调试用户标识冲突，请检查 userId/openid/unionid/phone 是否属于同一用户")
 
@@ -102,6 +129,8 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
     if user is not None and user.user_id != user_id:
         if phone and phone_from_user_id(user.user_id) == phone:
             user = migrate_mobile_user_id(db, user, user_id)
+        elif phone and user.new_phone == phone:
+            pass
         else:
             raise fail(status.HTTP_400_BAD_REQUEST, "该 openid/unionid/phone 已绑定其他 userId")
 
@@ -109,7 +138,7 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
         user = User(user_id=user_id)
         db.add(user)
 
-    if phone:
+    if phone and user.new_phone != phone:
         user.phone = phone
     if client_type:
         user.client_type = client_type
@@ -141,8 +170,14 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
     target_user_id = mobile_user_id(phone) if phone else None
     lookup_conditions = [User.openid == openid]
     if phone:
-        lookup_conditions.extend([User.phone == phone, User.user_id == target_user_id, User.user_id == f"h5-{phone}"])
+        lookup_conditions.extend(phone_login_conditions(phone))
     matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
+    if phone:
+        resolved_phone_user = resolve_phone_login_user(matched_users, phone)
+        if resolved_phone_user is None and len(matched_users) > 0:
+            raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已换绑，请使用新手机号登录")
+        if resolved_phone_user is not None:
+            matched_users = [resolved_phone_user]
     if len({user.id for user in matched_users}) > 1:
         target_matches = [item for item in matched_users if target_user_id and item.user_id == target_user_id]
         if target_matches:
@@ -154,11 +189,11 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
     if user is None:
         user = User(user_id=target_user_id or new_business_id("usr"), openid=openid)
         db.add(user)
-    elif target_user_id and user.user_id != target_user_id:
+    elif target_user_id and user.user_id != target_user_id and user.new_phone != phone:
         user = migrate_mobile_user_id(db, user, target_user_id)
 
     user.openid = user.openid or openid
-    if phone:
+    if phone and user.new_phone != phone:
         user.phone = phone
     user.client_type = client_type
     user.client_subtype = client_subtype
@@ -181,6 +216,7 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             "nickname": user.nickname,
             "avatar": user.avatar,
             "phone": user.phone,
+            "newPhone": user.new_phone,
             "clientType": user.client_type,
             "clientSubtype": user.client_subtype,
             "gender": user.gender,

@@ -18,6 +18,7 @@ def user_profile(user: User) -> UserProfile:
         openid=user.openid,
         unionid=user.unionid,
         phone=user.phone,
+        newPhone=user.new_phone,
         clientType=user.client_type,
         clientSubtype=user.client_subtype,
         nickname=user.nickname,
