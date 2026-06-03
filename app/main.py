@@ -18,6 +18,7 @@ from app.api.posts import router as posts_router
 from app.api.users import router as users_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
+from app.core.rate_limit import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,38 @@ app.include_router(posts_router)
 app.include_router(users_router)
 app.include_router(messages_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next) -> Response:
+    result = check_rate_limit(request)
+    if not result.allowed:
+        status_code = 403 if result.rule_id else 429
+        headers: dict[str, str] = {}
+        if result.retry_after:
+            headers["Retry-After"] = str(result.retry_after)
+        if result.limit:
+            headers["X-RateLimit-Limit"] = str(result.limit)
+            headers["X-RateLimit-Remaining"] = str(max(0, result.limit - result.current))
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "code": status_code,
+                "message": result.message,
+                "data": {
+                    "limit": result.limit,
+                    "current": result.current,
+                    "retryAfter": result.retry_after,
+                    "ruleId": result.rule_id,
+                },
+            },
+            headers=headers,
+        )
+    response = await call_next(request)
+    if result.limit:
+        response.headers["X-RateLimit-Limit"] = str(result.limit)
+        response.headers["X-RateLimit-Remaining"] = str(max(0, result.limit - result.current))
+    return response
 
 
 @app.middleware("http")

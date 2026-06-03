@@ -40,6 +40,7 @@ ADMIN_MODULE_TITLES = {
     "roles": "角色管理",
     "accounts": "账号管理",
     "security": "安全设置",
+    "access-rules": "黑白名单",
     "notifications": "消息通知",
 }
 USER_MODULE_TITLES = {

@@ -8,9 +8,11 @@ from pathlib import Path
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
 os.environ["REDIS_URL"] = "memory://"
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -41,6 +43,30 @@ def test_address_tree() -> None:
     assert body["data"][0]["value"] == "110000"
     assert body["data"][0]["label"] == "北京市"
     assert body["data"][0]["children"][0]["children"][0]["label"] == "东城区"
+
+
+def test_rate_limit() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+    original_enabled = settings.rate_limit_enabled
+    original_limit = settings.rate_limit_max_requests
+    original_window = settings.rate_limit_window_seconds
+    settings.rate_limit_enabled = True
+    settings.rate_limit_max_requests = 2
+    settings.rate_limit_window_seconds = 60
+    headers = {"x-forwarded-for": "203.0.113.10"}
+    try:
+        assert client.get("/api/address/tree", headers=headers).status_code == 200
+        assert client.get("/api/address/tree", headers=headers).status_code == 200
+        limited = client.get("/api/address/tree", headers=headers)
+        assert limited.status_code == 429
+        assert limited.json()["code"] == 429
+        assert limited.json()["message"].startswith("访问过于频繁")
+    finally:
+        settings.rate_limit_enabled = original_enabled
+        settings.rate_limit_max_requests = original_limit
+        settings.rate_limit_window_seconds = original_window
 
 
 def test_content_flow() -> None:
@@ -352,6 +378,7 @@ def test_admin_system_config_flow() -> None:
     assert any(item["name"] == "AccountSettings" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "LogList" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "VersionPackageUpload" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "AccessRuleList" for item in menu_routes.json()["data"]["flatList"])
     assert next(item for item in menu_routes.json()["data"]["flatList"] if item["name"] == "LogList")["path"] == "log/list"
 
     security_overview = client.get("/api/admin/security/overview", headers=headers)
@@ -380,6 +407,43 @@ def test_admin_system_config_flow() -> None:
     login_logs = client.get("/api/admin/security/login-logs", headers=headers)
     assert login_logs.status_code == 200
     assert login_logs.json()["data"]["total"] >= 1
+    access_rule_empty = client.get("/api/admin/access-rules", headers=headers)
+    assert access_rule_empty.status_code == 200
+    access_rule_create = client.post(
+        "/api/admin/access-rules",
+        json={
+            "type": "whitelist",
+            "ip": "127.0.0.1",
+            "method": "GET",
+            "path": "/api/admin/security/*",
+            "status": "enabled",
+            "remark": "测试白名单",
+        },
+        headers=headers,
+    )
+    assert access_rule_create.status_code == 200
+    access_rule_id = access_rule_create.json()["data"]["ruleId"]
+    assert access_rule_create.json()["data"]["typeText"] == "白名单"
+    assert client.get(f"/api/admin/access-rules/{access_rule_id}", headers=headers).json()["data"]["ip"] == "127.0.0.1"
+    access_rule_update = client.put(
+        f"/api/admin/access-rules/{access_rule_id}",
+        json={
+            "type": "blacklist",
+            "ip": "192.168.*",
+            "method": "ALL",
+            "path": "/api/posts/*",
+            "status": "disabled",
+            "remark": "测试黑名单",
+        },
+        headers=headers,
+    )
+    assert access_rule_update.status_code == 200
+    assert access_rule_update.json()["data"]["type"] == "blacklist"
+    assert access_rule_update.json()["data"]["status"] == "disabled"
+    access_rule_list = client.get("/api/admin/access-rules", params={"keyword": "192.168", "type": "blacklist"}, headers=headers)
+    assert access_rule_list.status_code == 200
+    assert access_rule_list.json()["data"]["total"] == 1
+    assert client.delete(f"/api/admin/access-rules/{access_rule_id}", headers=headers).status_code == 200
     warning_logs = client.get("/api/admin/logs", params={"category": "login", "status": "warning"}, headers=headers)
     assert warning_logs.status_code == 200
     assert warning_logs.json()["data"]["total"] >= 1

@@ -138,6 +138,19 @@ class AdminSecuritySetting(TimestampMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text)
 
 
+class AdminAccessRule(TimestampMixin, Base):
+    __tablename__ = "admin_access_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    rule_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    ip: Mapped[str | None] = mapped_column(String(64), index=True)
+    method: Mapped[str | None] = mapped_column(String(16), index=True)
+    path: Mapped[str | None] = mapped_column(String(256), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
 class AdminOperationLog(TimestampMixin, Base):
     __tablename__ = "admin_operation_logs"
 

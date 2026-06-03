@@ -24,7 +24,7 @@ from app.models.message import Message
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.system_config import AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPackage, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccessRule, AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPackage, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -37,7 +37,7 @@ DEFAULT_AGREEMENTS = {
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
 PACKAGE_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "packages"
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log"]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -55,10 +55,11 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_message", "permission_key": "message", "label": "系统消息", "description": "系统消息推送", "sort": 140, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_agreement", "permission_key": "agreement", "label": "协议管理", "description": "用户协议和隐私协议", "sort": 150, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_log", "permission_key": "log", "label": "日志管理", "description": "后台登录日志与操作日志", "sort": 160, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_access_rule", "permission_key": "access_rule", "label": "黑白名单", "description": "接口限流黑名单与白名单配置", "sort": 170, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "account", "tag", "region", "message", "log"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "account", "tag", "region", "message", "log", "access_rule"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
     {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
@@ -85,6 +86,7 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_privacy", "parent_id": "menu_system", "title": "隐私协议", "path": "/agreement/privacy", "name": "PrivacyAgreement", "component": "views/agreement/Privacy", "icon": "Lock", "type": "menu", "permission": "agreement", "sort": 60},
     {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 70},
     {"menu_id": "menu_log", "parent_id": "menu_system", "title": "日志管理", "path": "log/list", "name": "LogList", "component": "views/log/List", "icon": "Tickets", "type": "menu", "permission": "log", "sort": 80},
+    {"menu_id": "menu_access_rule", "parent_id": "menu_system", "title": "黑白名单", "path": "security/access-rules", "name": "AccessRuleList", "component": "views/security/AccessRules", "icon": "Connection", "type": "menu", "permission": "access_rule", "sort": 90},
 ]
 ADMIN_ONLY_ROUTE_NAMES = {"AccountProfile", "AccountSettings", "LogList"}
 ADMIN_ROUTE_ROLES = {"admin", "superadmin"}
@@ -103,6 +105,15 @@ class AdminSecuritySettingPayload(BaseModel):
     mfaEnabled: bool | None = Field(default=None, title="二次登录验证", description="是否开启二次登录验证")
     passwordPolicyEnabled: bool | None = Field(default=None, title="密码策略审核", description="是否开启密码策略审核")
     remark: str | None = Field(default=None, title="备注", description="安全设置备注")
+
+
+class AdminAccessRulePayload(BaseModel):
+    type: str = Field(pattern="^(blacklist|whitelist)$", title="名单类型", description="blacklist 黑名单，whitelist 白名单")
+    ip: str | None = Field(default=None, max_length=64, title="IP 地址", description="IP 地址，支持 * 通配；为空表示全部 IP")
+    method: str | None = Field(default=None, pattern="^(ALL|GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)$", title="请求方法", description="ALL 表示全部方法")
+    path: str | None = Field(default=None, max_length=256, title="接口路径", description="接口路径，支持 /api/posts/* 这种前缀通配；为空表示全部接口")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 禁用")
+    remark: str | None = Field(default=None, title="备注", description="规则备注")
 
 
 class AgreementUpdate(BaseModel):
@@ -917,6 +928,22 @@ def security_setting_item(setting: AdminSecuritySetting, account: AdminAccount) 
     }
 
 
+def access_rule_item(rule: AdminAccessRule) -> dict[str, Any]:
+    return {
+        "ruleId": rule.rule_id,
+        "type": rule.rule_type,
+        "typeText": "黑名单" if rule.rule_type == "blacklist" else "白名单",
+        "ip": rule.ip or "",
+        "method": rule.method or "ALL",
+        "path": rule.path or "",
+        "status": rule.status,
+        "statusText": "启用" if rule.status == "enabled" else "禁用",
+        "remark": rule.remark or "",
+        "createdAt": format_time(rule.create_time),
+        "updatedAt": format_time(rule.update_time),
+    }
+
+
 def menu_item(menu: AdminMenu) -> dict[str, Any]:
     return {
         "menuId": menu.menu_id,
@@ -1424,6 +1451,108 @@ def list_current_admin_login_logs(
     total = query.count()
     logs = query.order_by(AdminOperationLog.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
     return ok({"list": [operation_log_item(log, index == 0 and page == 1) for index, log in enumerate(logs)], "total": total})
+
+
+@router.get(
+    "/access-rules",
+    response_model=AdminResponse,
+    summary="黑白名单列表",
+    description="接口限流黑名单/白名单列表。白名单命中跳过限流，黑名单命中直接拦截。",
+)
+def list_admin_access_rules(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="IP、路径、备注关键词")] = None,
+    type: Annotated[str | None, Query(pattern="^(blacklist|whitelist)$", description="名单类型")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", pattern="^(enabled|disabled)$", description="状态")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=200, description="每页数量")] = 20,
+) -> dict[str, Any]:
+    query = db.query(AdminAccessRule)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter(
+            or_(
+                AdminAccessRule.ip.ilike(like_keyword),
+                AdminAccessRule.path.ilike(like_keyword),
+                AdminAccessRule.method.ilike(like_keyword),
+                AdminAccessRule.remark.ilike(like_keyword),
+            )
+        )
+    if type:
+        query = query.filter(AdminAccessRule.rule_type == type)
+    if status_filter:
+        query = query.filter(AdminAccessRule.status == status_filter)
+    total = query.count()
+    rules = query.order_by(AdminAccessRule.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [access_rule_item(rule) for rule in rules], "total": total})
+
+
+@router.post(
+    "/access-rules",
+    response_model=AdminResponse,
+    summary="新增黑白名单",
+    description="新增接口限流黑名单或白名单规则。",
+)
+def create_admin_access_rule(
+    payload: AdminAccessRulePayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    rule = AdminAccessRule(
+        rule_id=new_business_id("rule"),
+        rule_type=payload.type,
+        ip=(payload.ip or "").strip() or None,
+        method=(payload.method or "ALL").upper(),
+        path=(payload.path or "").strip() or None,
+        status=payload.status,
+        remark=payload.remark or "",
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return ok(access_rule_item(rule), "黑白名单规则创建成功")
+
+
+@router.get("/access-rules/{ruleId}", response_model=AdminResponse, summary="黑白名单详情", description="根据规则 ID 查询黑白名单详情。")
+def get_admin_access_rule(
+    ruleId: Annotated[str, Path(description="黑白名单规则 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    return ok(access_rule_item(get_access_rule_or_404(db, ruleId)))
+
+
+@router.put("/access-rules/{ruleId}", response_model=AdminResponse, summary="修改黑白名单", description="修改接口限流黑名单或白名单规则。")
+def update_admin_access_rule(
+    ruleId: Annotated[str, Path(description="黑白名单规则 ID")],
+    payload: AdminAccessRulePayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    rule = get_access_rule_or_404(db, ruleId)
+    rule.rule_type = payload.type
+    rule.ip = (payload.ip or "").strip() or None
+    rule.method = (payload.method or "ALL").upper()
+    rule.path = (payload.path or "").strip() or None
+    rule.status = payload.status
+    rule.remark = payload.remark or ""
+    rule.last_time = utc_now()
+    db.commit()
+    db.refresh(rule)
+    return ok(access_rule_item(rule), "黑白名单规则更新成功")
+
+
+@router.delete("/access-rules/{ruleId}", response_model=AdminResponse, summary="删除黑白名单", description="删除接口限流黑名单或白名单规则。")
+def delete_admin_access_rule(
+    ruleId: Annotated[str, Path(description="黑白名单规则 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    rule = get_access_rule_or_404(db, ruleId)
+    db.delete(rule)
+    db.commit()
+    return ok(None, "黑白名单规则删除成功")
 
 
 @router.get(
@@ -2347,6 +2476,13 @@ def get_or_create_security_setting(db: Session, account: AdminAccount) -> AdminS
     db.commit()
     db.refresh(setting)
     return setting
+
+
+def get_access_rule_or_404(db: Session, rule_id: str) -> AdminAccessRule:
+    rule = db.query(AdminAccessRule).filter(AdminAccessRule.rule_id == rule_id).one_or_none()
+    if rule is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "黑白名单规则未找到")
+    return rule
 
 
 def request_ip(request: Request | None) -> str:

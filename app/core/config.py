@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24 * 30
     redis_url: str = "redis://127.0.0.1:6379/0"
     redis_key_prefix: str = "instant_flash"
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_max_requests: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
