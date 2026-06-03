@@ -51,21 +51,29 @@ def test_rate_limit() -> None:
     client = TestClient(app)
     original_enabled = settings.rate_limit_enabled
     original_limit = settings.rate_limit_max_requests
+    original_mobile_limit = settings.mobile_rate_limit_max_requests
     original_window = settings.rate_limit_window_seconds
     settings.rate_limit_enabled = True
     settings.rate_limit_max_requests = 2
+    settings.mobile_rate_limit_max_requests = 10000
     settings.rate_limit_window_seconds = 60
     headers = {"x-forwarded-for": "203.0.113.10"}
     try:
-        assert client.get("/api/address/tree", headers=headers).status_code == 200
-        assert client.get("/api/address/tree", headers=headers).status_code == 200
-        limited = client.get("/api/address/tree", headers=headers)
+        mobile_response = client.get("/api/address/tree", headers=headers)
+        assert mobile_response.status_code == 200
+        assert mobile_response.headers["X-RateLimit-Limit"] == "10000"
+
+        assert client.get("/api/admin/users", headers=headers).status_code == 401
+        assert client.get("/api/admin/users", headers=headers).status_code == 401
+        limited = client.get("/api/admin/users", headers=headers)
         assert limited.status_code == 429
         assert limited.json()["code"] == 429
         assert limited.json()["message"].startswith("访问过于频繁")
+        assert limited.json()["data"]["limit"] == 2
     finally:
         settings.rate_limit_enabled = original_enabled
         settings.rate_limit_max_requests = original_limit
+        settings.mobile_rate_limit_max_requests = original_mobile_limit
         settings.rate_limit_window_seconds = original_window
 
 

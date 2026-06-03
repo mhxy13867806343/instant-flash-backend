@@ -22,6 +22,8 @@ SKIP_RATE_LIMIT_PREFIXES = (
     "/static",
     "/health",
 )
+MOBILE_RATE_LIMIT_PREFIX = "/api/"
+ADMIN_RATE_LIMIT_PREFIX = "/api/admin"
 
 
 @dataclass
@@ -45,6 +47,10 @@ def request_ip(request: Request) -> str:
 
 def should_skip_rate_limit(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in SKIP_RATE_LIMIT_PREFIXES)
+
+
+def is_mobile_api_path(path: str) -> bool:
+    return path.startswith(MOBILE_RATE_LIMIT_PREFIX) and not path.startswith(ADMIN_RATE_LIMIT_PREFIX)
 
 
 def _use_memory_store() -> bool:
@@ -139,7 +145,7 @@ def check_rate_limit(request: Request) -> RateLimitResult:
     if blacklist_rule is not None:
         return RateLimitResult(False, "当前 IP 或接口已被黑名单拦截", rule_id=blacklist_rule.rule_id)
 
-    limit = settings.rate_limit_max_requests
+    limit = settings.mobile_rate_limit_max_requests if is_mobile_api_path(path) else settings.rate_limit_max_requests
     window_seconds = settings.rate_limit_window_seconds
     key = _counter_key(ip, method, path)
     try:

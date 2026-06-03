@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_window_seconds: int = 60
     rate_limit_max_requests: int = 10
+    mobile_rate_limit_max_requests: int = 10000
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
