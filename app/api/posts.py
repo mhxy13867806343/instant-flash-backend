@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -57,6 +57,62 @@ def _liked_post_ids(db: Session, user: User | None, post_ids: list[str]) -> set[
         .all()
     )
     return {row[0] for row in rows}
+
+
+def _comment_tree(db: Session, comments: list[Comment]) -> list[CommentOut]:
+    user_ids = {comment.user_id for comment in comments}
+    user_ids.update(comment.reply_to_user_id for comment in comments if comment.reply_to_user_id)
+    users = {
+        user.user_id: user
+        for user in db.query(User).filter(User.user_id.in_(user_ids)).all()
+    } if user_ids else {}
+    nodes = {
+        comment.comment_id: comment_out(
+            comment,
+            users.get(comment.user_id),
+            users.get(comment.reply_to_user_id),
+        )
+        for comment in comments
+    }
+    roots: list[CommentOut] = []
+    for comment in sorted(comments, key=lambda item: item.create_time):
+        node = nodes[comment.comment_id]
+        if comment.parent_id and comment.parent_id in nodes:
+            parent = nodes[comment.parent_id]
+            parent.children.append(node)
+            parent.replies = parent.children
+            parent.replyCount = len(parent.children)
+        else:
+            roots.append(node)
+    return roots
+
+
+def _resolve_parent_comment(db: Session, post_id: str, payload: CommentCreate) -> Comment | None:
+    if payload.parentId:
+        parent = (
+            db.query(Comment)
+            .filter(
+                Comment.comment_id == payload.parentId,
+                Comment.post_id == post_id,
+                Comment.is_deleted.is_(False),
+            )
+            .one_or_none()
+        )
+        if parent is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent comment not found")
+        return parent
+    if payload.replyToUserId:
+        return (
+            db.query(Comment)
+            .filter(
+                Comment.post_id == post_id,
+                Comment.user_id == payload.replyToUserId,
+                Comment.is_deleted.is_(False),
+            )
+            .order_by(Comment.create_time.desc())
+            .first()
+        )
+    return None
 
 
 def _resolve_feed_type(*values: str | None) -> str:
@@ -179,21 +235,28 @@ def list_posts(
 )
 def list_post_comments(
     postId: Annotated[str, Path(description="内容 ID")],
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
-    page: Annotated[int, Query(ge=1, description="页码")] = 1,
-    page_size: Annotated[int, Query(alias="pageSize", ge=1, le=100, description="每页数量")] = 20,
+    page: Annotated[int | None, Query(ge=1, description="页码")] = None,
+    page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量")] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量，兼容移动端分页")] = 20,
+    offset: Annotated[int, Query(ge=0, description="偏移量，兼容移动端分页")] = 0,
 ) -> list[CommentOut]:
     post_id = postId
     _get_visible_post(db, post_id)
+    resolved_limit, resolved_offset = _page_to_limit_offset(page, page_size, limit, offset)
     comments = (
         db.query(Comment)
         .filter(Comment.post_id == post_id, Comment.is_deleted.is_(False))
         .order_by(Comment.create_time.asc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
         .all()
     )
-    return [comment_out(comment) for comment in comments]
+    roots = _comment_tree(db, comments)
+    response.headers["X-Total-Count"] = str(len(roots))
+    response.headers["X-Comment-Total"] = str(len(comments))
+    response.headers["X-Limit"] = str(resolved_limit)
+    response.headers["X-Offset"] = str(resolved_offset)
+    return roots[resolved_offset : resolved_offset + resolved_limit]
 
 
 @router.post(
@@ -364,20 +427,24 @@ def create_comment(
 ) -> CommentOut:
     post_id = postId
     post = _get_visible_post(db, post_id)
+    parent = _resolve_parent_comment(db, post_id, payload)
+    parent_id = parent.comment_id if parent is not None else None
+    reply_to_user_id = payload.replyToUserId or (parent.user_id if parent is not None else None)
     comment = Comment(
         comment_id=new_business_id("cmt"),
         post_id=post_id,
         user_id=current_user.user_id,
         content=payload.content,
-        parent_id=payload.parentId,
-        reply_to_user_id=payload.replyToUserId,
+        parent_id=parent_id,
+        reply_to_user_id=reply_to_user_id,
     )
     post.comment_count += 1
     post.last_time = utc_now()
     db.add(comment)
     db.commit()
     db.refresh(comment)
-    return comment_out(comment)
+    reply_to_user = db.query(User).filter(User.user_id == reply_to_user_id).one_or_none() if reply_to_user_id else None
+    return comment_out(comment, current_user, reply_to_user)
 
 
 @router.post(

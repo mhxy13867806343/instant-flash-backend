@@ -388,6 +388,51 @@ def test_post_feed_tabs_search_and_location() -> None:
     assert search_list.json()["items"][0]["location"] == "杭州·西湖"
 
 
+def test_comment_replies_are_nested_under_parent() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_comment_parent", "nickname": "父评论用户"},
+    )
+    headers = {"Authorization": f"Bearer {token_response.json()['accessToken']}"}
+    post_response = client.post("/api/posts", json={"content": "评论层级验证", "images": []}, headers=headers)
+    post_id = post_response.json()["postId"]
+
+    parent = client.post(f"/api/posts/{post_id}/comments", json={"content": "一级评论"}, headers=headers)
+    assert parent.status_code == 201
+    reply = client.post(
+        f"/api/posts/{post_id}/comments",
+        json={"content": "回复一级评论", "replyToCommentId": parent.json()["commentId"]},
+        headers=headers,
+    )
+    assert reply.status_code == 201
+    assert reply.json()["parentId"] == parent.json()["commentId"]
+    assert reply.json()["replyToUserId"] == "usr_comment_parent"
+    second_parent = client.post(f"/api/posts/{post_id}/comments", json={"content": "第二条一级评论"}, headers=headers)
+    assert second_parent.status_code == 201
+
+    comments = client.get(f"/api/posts/{post_id}/comments?page=1&pageSize=1")
+    assert comments.status_code == 200
+    body = comments.json()
+    assert len(body) == 1
+    assert comments.headers["X-Total-Count"] == "2"
+    assert comments.headers["X-Comment-Total"] == "3"
+    assert comments.headers["X-Limit"] == "1"
+    assert comments.headers["X-Offset"] == "0"
+    assert body[0]["commentId"] == parent.json()["commentId"]
+    assert body[0]["replyCount"] == 1
+    assert body[0]["children"][0]["commentId"] == reply.json()["commentId"]
+    assert body[0]["replies"][0]["parentId"] == parent.json()["commentId"]
+
+    offset_comments = client.get(f"/api/posts/{post_id}/comments?limit=1&offset=1")
+    assert offset_comments.status_code == 200
+    assert offset_comments.headers["X-Total-Count"] == "2"
+    assert offset_comments.json()[0]["commentId"] == second_parent.json()["commentId"]
+
+
 def test_admin_like_share_lists_and_routes() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

@@ -61,14 +61,26 @@ def post_out(post: Post, current_user: User | None, is_liked: bool) -> PostOut:
     )
 
 
-def comment_out(comment: Comment) -> CommentOut:
+def comment_out(
+    comment: Comment,
+    user: User | None = None,
+    reply_to: User | None = None,
+    children: list[CommentOut] | None = None,
+) -> CommentOut:
+    resolved_children = children or []
     return CommentOut(
         commentId=comment.comment_id,
         postId=comment.post_id,
         userId=comment.user_id,
+        nickname=user.nickname if user and user.nickname else None,
+        avatar=user.avatar if user else None,
         content=comment.content,
         parentId=comment.parent_id,
         replyToUserId=comment.reply_to_user_id,
+        replyToNickname=reply_to.nickname if reply_to and reply_to.nickname else None,
+        children=resolved_children,
+        replies=resolved_children,
+        replyCount=len(resolved_children),
         createdAt=comment.create_time,
         updatedAt=comment.update_time,
     )
