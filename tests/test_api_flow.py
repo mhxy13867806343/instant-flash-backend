@@ -341,6 +341,53 @@ def test_admin_flow() -> None:
     assert filtered.json()["data"]["list"][0]["userId"] == "usr_admin_target"
 
 
+def test_post_feed_tabs_search_and_location() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_feed", "nickname": "杭州用户"},
+    )
+    headers = {"Authorization": f"Bearer {token_response.json()['accessToken']}"}
+
+    popular = client.post(
+        "/api/posts",
+        json={
+            "content": "推荐内容",
+            "images": [],
+            "location": "杭州·西湖",
+            "province": "浙江省",
+            "city": "杭州市",
+            "district": "西湖区",
+        },
+        headers=headers,
+    )
+    latest = client.post(
+        "/api/posts",
+        json={"content": "最新内容", "images": [], "location": "上海·静安寺", "city": "上海市"},
+        headers=headers,
+    )
+    assert popular.status_code == 201
+    assert latest.status_code == 201
+
+    assert client.post(f"/api/posts/{popular.json()['postId']}/like", headers=headers).status_code == 200
+
+    latest_list = client.get("/api/posts", params={"tab": "latest", "limit": 2})
+    assert latest_list.status_code == 200
+    assert latest_list.json()["items"][0]["postId"] == latest.json()["postId"]
+
+    recommend_list = client.get("/api/posts", params={"tab": "recommend", "limit": 2})
+    assert recommend_list.status_code == 200
+    assert recommend_list.json()["items"][0]["postId"] == popular.json()["postId"]
+
+    search_list = client.get("/api/posts", params={"keyword": "西湖", "tab": "recommend"})
+    assert search_list.status_code == 200
+    assert search_list.json()["total"] == 1
+    assert search_list.json()["items"][0]["location"] == "杭州·西湖"
+
+
 def test_auth_errors_are_unified() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

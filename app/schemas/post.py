@@ -9,11 +9,19 @@ from pydantic import BaseModel, Field
 class PostCreate(BaseModel):
     content: str = Field(min_length=1, title="内容正文", description="用户发布的文字内容")
     images: list[Any] = Field(default_factory=list, title="图片列表", description="内容附带的图片 URL 或图片对象列表")
+    location: str | None = Field(default=None, max_length=128, title="发布地点", description="内容发布地点名称，例如 杭州·西湖")
+    province: str | None = Field(default=None, max_length=64, title="省份", description="内容发布省份")
+    city: str | None = Field(default=None, max_length=64, title="城市", description="内容发布城市")
+    district: str | None = Field(default=None, max_length=64, title="区县", description="内容发布区县")
 
 
 class PostUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1, title="内容正文", description="更新后的文字内容")
     images: list[Any] | None = Field(default=None, title="图片列表", description="更新后的图片列表")
+    location: str | None = Field(default=None, max_length=128, title="发布地点", description="更新后的发布地点名称")
+    province: str | None = Field(default=None, max_length=64, title="省份", description="更新后的省份")
+    city: str | None = Field(default=None, max_length=64, title="城市", description="更新后的城市")
+    district: str | None = Field(default=None, max_length=64, title="区县", description="更新后的区县")
     status: str | None = Field(default=None, max_length=32, title="内容状态", description="内容状态，例如 online/offline")
 
 
@@ -24,6 +32,10 @@ class PostOut(BaseModel):
     avatar: str | None = Field(default=None, title="发布者头像", description="发布者头像 URL")
     content: str = Field(title="内容正文", description="内容文字")
     images: list[Any] = Field(title="图片列表", description="内容图片列表")
+    location: str | None = Field(default=None, title="发布地点", description="内容发布地点名称")
+    province: str | None = Field(default=None, title="省份", description="内容发布省份")
+    city: str | None = Field(default=None, title="城市", description="内容发布城市")
+    district: str | None = Field(default=None, title="区县", description="内容发布区县")
     likeCount: int = Field(title="点赞数", description="当前内容点赞数量")
     commentCount: int = Field(title="评论数", description="当前内容评论数量")
     shareCount: int = Field(title="分享数", description="当前内容分享数量")

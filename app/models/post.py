@@ -20,6 +20,10 @@ class Post(TimestampMixin, Base):
         String(64), ForeignKey("users.user_id", onupdate="CASCADE"), index=True, nullable=False
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    location: Mapped[str | None] = mapped_column(String(128), index=True)
+    province: Mapped[str | None] = mapped_column(String(64))
+    city: Mapped[str | None] = mapped_column(String(64), index=True)
+    district: Mapped[str | None] = mapped_column(String(64))
     images: Mapped[list[Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
     )

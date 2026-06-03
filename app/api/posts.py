@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user_optional, get_current_user_required
@@ -59,6 +59,25 @@ def _liked_post_ids(db: Session, user: User | None, post_ids: list[str]) -> set[
     return {row[0] for row in rows}
 
 
+def _resolve_feed_type(*values: str | None) -> str:
+    for value in values:
+        if not value:
+            continue
+        normalized = value.strip().lower()
+        if normalized in {"recommend", "recommended", "hot", "score", "推荐", "热门"}:
+            return "recommend"
+        if normalized in {"latest", "new", "newest", "time", "最新"}:
+            return "latest"
+    return "latest"
+
+
+def _resolve_keyword(*values: str | None) -> str | None:
+    for value in values:
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
 @router.get(
     "",
     response_model=PostListResponse,
@@ -72,16 +91,73 @@ def list_posts(
     offset: Annotated[int, Query(ge=0, description="偏移量，兼容 limit/offset 分页")] = 0,
     page: Annotated[int | None, Query(ge=1, description="页码，兼容 page/pageSize 分页")] = None,
     page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量，兼容 page/pageSize 分页")] = None,
+    tab: Annotated[str | None, Query(description="内容流类型：recommend 推荐，latest 最新")] = None,
+    type_alias: Annotated[str | None, Query(alias="type", description="兼容旧参数 type", include_in_schema=False)] = None,
+    sort: Annotated[str | None, Query(description="排序类型：recommend/latest")] = None,
+    mode: Annotated[str | None, Query(description="兼容模式参数：recommend/latest")] = None,
+    keyword: Annotated[str | None, Query(description="搜索关键词：匹配动态内容、用户昵称、用户 ID、地点")] = None,
+    search: Annotated[str | None, Query(description="兼容搜索参数 search", include_in_schema=False)] = None,
+    q: Annotated[str | None, Query(description="兼容搜索参数 q", include_in_schema=False)] = None,
+    province: Annotated[str | None, Query(description="省份筛选")] = None,
+    city: Annotated[str | None, Query(description="城市筛选")] = None,
+    district: Annotated[str | None, Query(description="区县筛选")] = None,
+    location: Annotated[str | None, Query(description="地点关键词筛选")] = None,
 ) -> PostListResponse:
     limit, offset = _page_to_limit_offset(page, page_size, limit, offset)
+    feed_type = _resolve_feed_type(tab, type_alias, sort, mode)
+    resolved_keyword = _resolve_keyword(keyword, search, q)
     base_query = db.query(Post).filter(
         Post.is_deleted.is_(False),
         Post.status.in_(VISIBLE_POST_STATUSES),
     )
+    if any([resolved_keyword, province, city, district, location]):
+        base_query = base_query.join(User, User.user_id == Post.user_id)
+    if resolved_keyword:
+        like_keyword = f"%{resolved_keyword}%"
+        base_query = base_query.filter(
+            or_(
+                Post.content.ilike(like_keyword),
+                Post.location.ilike(like_keyword),
+                Post.province.ilike(like_keyword),
+                Post.city.ilike(like_keyword),
+                Post.district.ilike(like_keyword),
+                User.nickname.ilike(like_keyword),
+                User.user_id.ilike(like_keyword),
+                User.province.ilike(like_keyword),
+                User.city.ilike(like_keyword),
+                User.district.ilike(like_keyword),
+            )
+        )
+    if province:
+        base_query = base_query.filter(or_(Post.province.ilike(f"%{province}%"), User.province.ilike(f"%{province}%")))
+    if city:
+        base_query = base_query.filter(or_(Post.city.ilike(f"%{city}%"), User.city.ilike(f"%{city}%")))
+    if district:
+        base_query = base_query.filter(or_(Post.district.ilike(f"%{district}%"), User.district.ilike(f"%{district}%")))
+    if location:
+        like_location = f"%{location}%"
+        base_query = base_query.filter(
+            or_(
+                Post.location.ilike(like_location),
+                Post.province.ilike(like_location),
+                Post.city.ilike(like_location),
+                Post.district.ilike(like_location),
+                User.province.ilike(like_location),
+                User.city.ilike(like_location),
+                User.district.ilike(like_location),
+            )
+        )
     total = base_query.with_entities(func.count(Post.id)).scalar() or 0
+    if feed_type == "recommend":
+        order_by = (
+            (Post.like_count * 3 + Post.comment_count * 2 + Post.share_count * 2).desc(),
+            Post.create_time.desc(),
+        )
+    else:
+        order_by = (Post.create_time.desc(),)
     posts = (
         base_query.options(joinedload(Post.author))
-        .order_by(Post.create_time.desc())
+        .order_by(*order_by)
         .offset(offset)
         .limit(limit)
         .all()
@@ -137,6 +213,10 @@ def create_post(
         user_id=current_user.user_id,
         content=payload.content,
         images=payload.images,
+        location=payload.location,
+        province=payload.province,
+        city=payload.city,
+        district=payload.district,
     )
     db.add(post)
     db.commit()
@@ -191,6 +271,14 @@ def update_post(
         post.content = payload.content
     if payload.images is not None:
         post.images = payload.images
+    if payload.location is not None:
+        post.location = payload.location
+    if payload.province is not None:
+        post.province = payload.province
+    if payload.city is not None:
+        post.city = payload.city
+    if payload.district is not None:
+        post.district = payload.district
     if payload.status is not None:
         post.status = payload.status
     post.last_time = utc_now()
