@@ -40,3 +40,23 @@ class CommentOut(BaseModel):
     replyCount: int = Field(default=0, title="回复数量", description="当前评论下的直接回复数量")
     createdAt: datetime = Field(title="创建时间", description="评论创建时间")
     updatedAt: datetime = Field(title="更新时间", description="评论更新时间")
+
+
+class CommentListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    comments: list[CommentOut] = Field(
+        default_factory=list,
+        serialization_alias="list",
+        validation_alias="list",
+        title="评论列表",
+        description="当前页一级评论列表，回复在 children/replies 中平铺展示",
+    )
+    items: list[CommentOut] = Field(default_factory=list, title="评论列表兼容字段", description="兼容读取 items 的前端，值同 list")
+    total: int = Field(title="一级评论总数", description="顶层评论总数，用于分页")
+    commentTotal: int = Field(title="评论总数", description="一级评论加所有回复的总数")
+    limit: int = Field(title="每页数量", description="当前分页每页数量")
+    offset: int = Field(title="偏移量", description="当前分页偏移量")
+    page: int = Field(title="当前页码", description="当前分页页码")
+    pageSize: int = Field(title="每页数量", description="当前分页每页数量")
+    hasMore: bool = Field(title="是否还有更多", description="是否还有下一页一级评论")

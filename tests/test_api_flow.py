@@ -134,7 +134,8 @@ def test_content_flow() -> None:
 
     comments = client.get(f"/api/posts/{post_id}/comments?page=1&pageSize=10")
     assert comments.status_code == 200
-    assert comments.json()[0]["commentId"] == comment.json()["commentId"]
+    assert comments.json()["list"][0]["commentId"] == comment.json()["commentId"]
+    assert comments.json()["total"] == 1
 
     anonymous_share = client.post(f"/api/posts/{post_id}/share", json={"platform": "h5"})
     assert anonymous_share.status_code == 201
@@ -411,26 +412,46 @@ def test_comment_replies_are_nested_under_parent() -> None:
     assert reply.status_code == 201
     assert reply.json()["parentId"] == parent.json()["commentId"]
     assert reply.json()["replyToUserId"] == "usr_comment_parent"
+    nested_reply = client.post(
+        f"/api/posts/{post_id}/comments",
+        json={"content": "回复内部回复", "replyToCommentId": reply.json()["commentId"]},
+        headers=headers,
+    )
+    assert nested_reply.status_code == 201
+    assert nested_reply.json()["parentId"] == reply.json()["commentId"]
     second_parent = client.post(f"/api/posts/{post_id}/comments", json={"content": "第二条一级评论"}, headers=headers)
     assert second_parent.status_code == 201
 
     comments = client.get(f"/api/posts/{post_id}/comments?page=1&pageSize=1")
     assert comments.status_code == 200
-    body = comments.json()
+    payload = comments.json()
+    body = payload["list"]
     assert len(body) == 1
     assert comments.headers["X-Total-Count"] == "2"
-    assert comments.headers["X-Comment-Total"] == "3"
+    assert comments.headers["X-Comment-Total"] == "4"
     assert comments.headers["X-Limit"] == "1"
     assert comments.headers["X-Offset"] == "0"
+    assert payload["total"] == 2
+    assert payload["commentTotal"] == 4
+    assert payload["limit"] == 1
+    assert payload["offset"] == 0
+    assert payload["page"] == 1
+    assert payload["pageSize"] == 1
+    assert payload["hasMore"] is True
     assert body[0]["commentId"] == parent.json()["commentId"]
-    assert body[0]["replyCount"] == 1
+    assert body[0]["replyCount"] == 2
     assert body[0]["children"][0]["commentId"] == reply.json()["commentId"]
     assert body[0]["replies"][0]["parentId"] == parent.json()["commentId"]
+    assert body[0]["children"][1]["commentId"] == nested_reply.json()["commentId"]
+    assert body[0]["children"][1]["parentId"] == reply.json()["commentId"]
+    assert body[0]["children"][1]["children"] == []
+    assert body[0]["children"][1]["replies"] == []
 
     offset_comments = client.get(f"/api/posts/{post_id}/comments?limit=1&offset=1")
     assert offset_comments.status_code == 200
     assert offset_comments.headers["X-Total-Count"] == "2"
-    assert offset_comments.json()[0]["commentId"] == second_parent.json()["commentId"]
+    assert offset_comments.json()["list"][0]["commentId"] == second_parent.json()["commentId"]
+    assert offset_comments.json()["hasMore"] is False
 
 
 def test_admin_like_share_lists_and_routes() -> None:

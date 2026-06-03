@@ -16,7 +16,7 @@ from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
 from app.models.user import User
-from app.schemas.comment import CommentCreate, CommentOut
+from app.schemas.comment import CommentCreate, CommentListResponse, CommentOut
 from app.schemas.post import LikeResponse, PostCreate, PostListResponse, PostOut, PostUpdate
 from app.schemas.share import ShareCreate, ShareOut
 
@@ -74,14 +74,35 @@ def _comment_tree(db: Session, comments: list[Comment]) -> list[CommentOut]:
         )
         for comment in comments
     }
+    by_id = {comment.comment_id: comment for comment in comments}
+    root_ids: dict[str, str] = {}
+
+    def root_id_for(comment: Comment) -> str:
+        cached = root_ids.get(comment.comment_id)
+        if cached:
+            return cached
+        seen = {comment.comment_id}
+        current = comment
+        while current.parent_id and current.parent_id in by_id and current.parent_id not in seen:
+            current = by_id[current.parent_id]
+            seen.add(current.comment_id)
+        root_ids[comment.comment_id] = current.comment_id
+        return current.comment_id
+
     roots: list[CommentOut] = []
     for comment in sorted(comments, key=lambda item: item.create_time):
         node = nodes[comment.comment_id]
-        if comment.parent_id and comment.parent_id in nodes:
-            parent = nodes[comment.parent_id]
-            parent.children.append(node)
-            parent.replies = parent.children
-            parent.replyCount = len(parent.children)
+        if comment.parent_id:
+            root = nodes.get(root_id_for(comment))
+            if root and root.commentId != node.commentId:
+                node.children = []
+                node.replies = []
+                node.replyCount = 0
+                root.children.append(node)
+                root.replies = root.children
+                root.replyCount = len(root.children)
+            else:
+                roots.append(node)
         else:
             roots.append(node)
     return roots
@@ -229,9 +250,9 @@ def list_posts(
 
 @router.get(
     "/{postId}/comments",
-    response_model=list[CommentOut],
+    response_model=CommentListResponse,
     summary="内容评论列表",
-    description="获取某条内容下的评论和回复列表。",
+    description="获取某条内容下的分页评论和回复列表。一级评论分页，所有内部回复平铺在对应一级评论的 children/replies 中。",
 )
 def list_post_comments(
     postId: Annotated[str, Path(description="内容 ID")],
@@ -241,7 +262,7 @@ def list_post_comments(
     page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量")] = None,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量，兼容移动端分页")] = 20,
     offset: Annotated[int, Query(ge=0, description="偏移量，兼容移动端分页")] = 0,
-) -> list[CommentOut]:
+) -> CommentListResponse:
     post_id = postId
     _get_visible_post(db, post_id)
     resolved_limit, resolved_offset = _page_to_limit_offset(page, page_size, limit, offset)
@@ -256,7 +277,19 @@ def list_post_comments(
     response.headers["X-Comment-Total"] = str(len(comments))
     response.headers["X-Limit"] = str(resolved_limit)
     response.headers["X-Offset"] = str(resolved_offset)
-    return roots[resolved_offset : resolved_offset + resolved_limit]
+    page_items = roots[resolved_offset : resolved_offset + resolved_limit]
+    resolved_page = (resolved_offset // resolved_limit) + 1
+    return CommentListResponse(
+        comments=page_items,
+        items=page_items,
+        total=len(roots),
+        commentTotal=len(comments),
+        limit=resolved_limit,
+        offset=resolved_offset,
+        page=resolved_page,
+        pageSize=resolved_limit,
+        hasMore=resolved_offset + resolved_limit < len(roots),
+    )
 
 
 @router.post(
