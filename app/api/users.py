@@ -7,12 +7,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.admin import fail, read_user_import_rows, user_export_response
+from app.api.auth import migrate_mobile_user_id
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
-from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone
+from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone
+from app.core.security import create_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
@@ -23,7 +26,7 @@ from app.models.user import User
 from app.schemas.comment import CommentOut
 from app.schemas.post import PostListResponse, PostOut
 from app.schemas.share import ShareOut
-from app.schemas.user import UserProfile, UserProfileUpdate
+from app.schemas.user import UserBindPhoneRequest, UserProfile, UserProfileUpdate
 
 router = APIRouter(prefix="/api/user", tags=["用户端用户"])
 AVATAR_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "avatars"
@@ -120,6 +123,60 @@ def upload_profile_avatar(
             "profile": user_profile(current_user).model_dump(),
         },
         "头像上传成功",
+    )
+
+
+@router.post(
+    "/bindPhone",
+    summary="绑定手机号",
+    description="用户端绑定手机号。手机号会规范化保存；移动端用户绑定后业务用户 ID 统一为 mp-手机号，并返回新的 token。",
+)
+@router.post(
+    "/bind-phone",
+    include_in_schema=False,
+)
+def bind_phone(
+    payload: UserBindPhoneRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    phone = normalize_phone(payload.phone)
+    if not phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "手机号不能为空")
+
+    target_user_id = mobile_user_id(phone)
+    existing = (
+        db.query(User)
+        .filter(or_(User.phone == phone, User.user_id == target_user_id), User.id != current_user.id)
+        .first()
+    )
+    if existing is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已绑定其他用户")
+
+    user = migrate_mobile_user_id(db, current_user, target_user_id)
+    user.phone = phone
+    client_type = normalize_client_type(payload.client_type)
+    client_subtype = normalize_client_subtype(payload.client_subtype)
+    if client_type:
+        user.client_type = client_type
+    if client_subtype:
+        user.client_subtype = client_subtype
+    user.last_time = utc_now()
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(user.user_id)
+    profile = user_profile(user).model_dump()
+    return ok(
+        {
+            "user": profile,
+            "profile": profile,
+            "userId": user.user_id,
+            "phone": user.phone,
+            "accessToken": token,
+            "token": token,
+        },
+        "手机号绑定成功",
     )
 
 

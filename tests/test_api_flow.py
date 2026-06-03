@@ -1358,6 +1358,63 @@ def test_mobile_phone_login_uses_mp_user_id_and_client_type() -> None:
     assert detail.json()["data"]["clientType"] == "android"
 
 
+def test_user_bind_phone_returns_mp_user_and_new_token() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    login = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_bind_phone", "nickname": "绑定用户"},
+    )
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+
+    bind = client.post(
+        "/api/user/bindPhone",
+        json={"phoneNumber": "180 7278 3980", "clientType": "iOS"},
+        headers=headers,
+    )
+    assert bind.status_code == 200
+    body = bind.json()
+    assert body["code"] == 200
+    assert body["message"] == "手机号绑定成功"
+    assert body["data"]["userId"] == "mp-18072783980"
+    assert body["data"]["phone"] == "18072783980"
+    assert body["data"]["token"] == body["data"]["accessToken"]
+    assert body["data"]["user"]["clientType"] == "ios"
+
+    new_headers = {"Authorization": f"Bearer {body['data']['accessToken']}"}
+    profile = client.get("/api/user/profile", headers=new_headers)
+    assert profile.status_code == 200
+    assert profile.json()["userId"] == "mp-18072783980"
+    assert profile.json()["phone"] == "18072783980"
+
+
+def test_user_bind_phone_rejects_duplicate_phone() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "mp-18072783981", "phone": "18072783981", "nickname": "已有手机号用户"},
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_bind_phone_second", "nickname": "另一个用户"},
+    )
+    assert second.status_code == 200
+    response = client.post(
+        "/api/user/bindPhone",
+        json={"phone": "18072783981"},
+        headers={"Authorization": f"Bearer {second.json()['accessToken']}"},
+    )
+    assert response.status_code == 400
+    assert response.json()["message"] == "该手机号已绑定其他用户"
+
+
 def test_wx_login_with_phone_records_mobile_type() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

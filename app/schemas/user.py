@@ -40,6 +40,33 @@ class UserProfileUpdate(BaseModel):
     )
 
 
+class UserBindPhoneRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    phone: str = Field(
+        validation_alias=AliasChoices("phone", "phoneNumber", "mobile", "mobilePhone"),
+        max_length=32,
+        title="手机号",
+        description="需要绑定的手机号，兼容 phoneNumber/mobile/mobilePhone",
+    )
+    client_type: str | None = Field(
+        default=None,
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default=None,
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    )
+
+
 class UserProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
