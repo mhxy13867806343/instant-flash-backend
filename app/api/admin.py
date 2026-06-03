@@ -38,12 +38,14 @@ DEFAULT_AGREEMENTS = {
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
 PACKAGE_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "packages"
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule"]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_content", "permission_key": "content", "label": "内容管理", "description": "动态内容审核与上下架", "sort": 30, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_comment", "permission_key": "comment", "label": "评论管理", "description": "评论列表与删除", "sort": 40, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_like", "permission_key": "like", "label": "点赞管理", "description": "内容点赞记录管理", "sort": 45, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_share", "permission_key": "share", "label": "分享管理", "description": "内容分享记录管理", "sort": 46, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_simulator", "permission_key": "simulator", "label": "App 仿真模拟", "description": "App 仿真模拟页面", "sort": 50, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_account", "permission_key": "account", "label": "账号管理", "description": "后台账号和角色配置", "sort": 60, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_announcement", "permission_key": "announcement", "label": "公告管理", "description": "单公告和公告列表", "sort": 70, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -60,8 +62,8 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "account", "tag", "region", "message", "log", "access_rule"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
-    {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "like", "share", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
 DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
@@ -69,6 +71,8 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_user", "parent_id": None, "title": "用户管理", "path": "/user", "name": "UserList", "component": "views/user/List", "icon": "User", "type": "menu", "permission": "user", "sort": 20},
     {"menu_id": "menu_content", "parent_id": None, "title": "内容管理", "path": "/content", "name": "ContentList", "component": "views/content/List", "icon": "Document", "type": "menu", "permission": "content", "sort": 30},
     {"menu_id": "menu_comment", "parent_id": None, "title": "评论管理", "path": "/comment", "name": "CommentList", "component": "views/comment/List", "icon": "ChatLineSquare", "type": "menu", "permission": "comment", "sort": 40},
+    {"menu_id": "menu_like", "parent_id": None, "title": "点赞管理", "path": "/like", "name": "LikeList", "component": "views/like/List", "icon": "Star", "type": "menu", "permission": "like", "sort": 45},
+    {"menu_id": "menu_share", "parent_id": None, "title": "分享管理", "path": "/share", "name": "ShareList", "component": "views/share/List", "icon": "Share", "type": "menu", "permission": "share", "sort": 46},
     {"menu_id": "menu_simulator", "parent_id": None, "title": "App 仿真模拟", "path": "/simulator", "name": "AppSimulator", "component": "views/simulator/Index", "icon": "Smartphone", "type": "menu", "permission": "simulator", "sort": 50},
     {"menu_id": "menu_account", "parent_id": None, "title": "账号管理", "path": "/account", "name": "AccountList", "component": "views/account/List", "icon": "UserFilled", "type": "menu", "permission": "account", "sort": 60},
     {"menu_id": "menu_announcement", "parent_id": None, "title": "公告管理", "path": "/announcement", "name": "Announcement", "component": None, "redirect": "/announcement/single", "icon": "Bell", "type": "catalog", "permission": "announcement", "sort": 70},
@@ -625,6 +629,40 @@ def comment_item(db: Session, comment: Comment) -> dict[str, Any]:
         "replyToUserId": comment.reply_to_user_id,
         "replyToNickname": reply_to.nickname if reply_to else None,
         "pubTime": format_time(comment.create_time),
+    }
+
+
+def like_item(db: Session, like: PostLike) -> dict[str, Any]:
+    user = db.query(User).filter(User.user_id == like.user_id).one_or_none()
+    post = db.query(Post).filter(Post.post_id == like.post_id).one_or_none()
+    return {
+        "likeId": str(like.id),
+        "postId": like.post_id,
+        "userId": like.user_id,
+        "nickname": user.nickname if user and user.nickname else "即闪用户",
+        "avatar": user.avatar if user and user.avatar else "",
+        "content": post.content if post else "",
+        "postStatus": post_status(post) if post else "",
+        "likedAt": format_time(like.create_time),
+        "createdAt": format_time(like.create_time),
+    }
+
+
+def share_item(db: Session, share: PostShare) -> dict[str, Any]:
+    user = db.query(User).filter(User.user_id == share.user_id).one_or_none()
+    post = db.query(Post).filter(Post.post_id == share.post_id).one_or_none()
+    return {
+        "shareId": str(share.id),
+        "postId": share.post_id,
+        "userId": share.user_id,
+        "nickname": user.nickname if user and user.nickname else "即闪用户",
+        "avatar": user.avatar if user and user.avatar else "",
+        "content": post.content if post else "",
+        "postStatus": post_status(post) if post else "",
+        "scene": share.scene or "",
+        "platform": share.platform or "",
+        "sharedAt": format_time(share.create_time),
+        "createdAt": format_time(share.create_time),
     }
 
 
@@ -2138,6 +2176,126 @@ def delete_admin_comment(
         post.last_time = utc_now()
     db.commit()
     return ok(None, "评论已成功删除")
+
+
+@router.get(
+    "/likes",
+    response_model=AdminResponse,
+    summary="点赞列表",
+    description="后台点赞管理列表，支持按内容 ID、点赞人用户 ID、内容或昵称关键词筛选。",
+)
+def list_admin_likes(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    postId: Annotated[str | None, Query(description="内容 ID，精确匹配")] = None,
+    userId: Annotated[str | None, Query(description="点赞人业务用户 ID，精确匹配")] = None,
+    post_id_legacy: Annotated[str | None, Query(alias="post_id", description="兼容旧参数 post_id", include_in_schema=False)] = None,
+    user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
+    keyword: Annotated[str | None, Query(description="内容、昵称、用户 ID 关键词")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    post_id = postId or post_id_legacy
+    user_id = userId or user_id_legacy
+    query = db.query(PostLike)
+    if post_id:
+        query = query.filter(PostLike.post_id == post_id)
+    if user_id:
+        query = query.filter(PostLike.user_id == user_id)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.join(Post, Post.post_id == PostLike.post_id).join(User, User.user_id == PostLike.user_id).filter(
+            or_(Post.content.ilike(like_keyword), User.nickname.ilike(like_keyword), User.user_id.ilike(like_keyword))
+        )
+    total = query.count()
+    likes = query.order_by(PostLike.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [like_item(db, like) for like in likes], "total": total})
+
+
+@router.delete(
+    "/likes/{likeId}",
+    response_model=AdminResponse,
+    summary="删除点赞记录",
+    description="后台删除点赞记录，并同步扣减内容点赞数。",
+)
+def delete_admin_like(
+    likeId: Annotated[int, Path(description="点赞记录 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    like = db.query(PostLike).filter(PostLike.id == likeId).one_or_none()
+    if like is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "点赞记录未找到")
+    post = db.query(Post).filter(Post.post_id == like.post_id).one_or_none()
+    if post is not None:
+        post.like_count = max(0, post.like_count - 1)
+        post.last_time = utc_now()
+    db.delete(like)
+    db.commit()
+    return ok(None, "点赞记录已删除")
+
+
+@router.get(
+    "/shares",
+    response_model=AdminResponse,
+    summary="分享列表",
+    description="后台分享管理列表，支持按内容 ID、分享人用户 ID、平台、场景、内容或昵称关键词筛选。",
+)
+def list_admin_shares(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    postId: Annotated[str | None, Query(description="内容 ID，精确匹配")] = None,
+    userId: Annotated[str | None, Query(description="分享人业务用户 ID，精确匹配")] = None,
+    post_id_legacy: Annotated[str | None, Query(alias="post_id", description="兼容旧参数 post_id", include_in_schema=False)] = None,
+    user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
+    platform: Annotated[str | None, Query(description="分享平台，例如 h5/wechat")] = None,
+    scene: Annotated[str | None, Query(description="分享场景")] = None,
+    keyword: Annotated[str | None, Query(description="内容、昵称、用户 ID 关键词")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    post_id = postId or post_id_legacy
+    user_id = userId or user_id_legacy
+    query = db.query(PostShare)
+    if post_id:
+        query = query.filter(PostShare.post_id == post_id)
+    if user_id:
+        query = query.filter(PostShare.user_id == user_id)
+    if platform:
+        query = query.filter(PostShare.platform.ilike(f"%{platform}%"))
+    if scene:
+        query = query.filter(PostShare.scene.ilike(f"%{scene}%"))
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.join(Post, Post.post_id == PostShare.post_id).join(User, User.user_id == PostShare.user_id).filter(
+            or_(Post.content.ilike(like_keyword), User.nickname.ilike(like_keyword), User.user_id.ilike(like_keyword))
+        )
+    total = query.count()
+    shares = query.order_by(PostShare.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [share_item(db, share) for share in shares], "total": total})
+
+
+@router.delete(
+    "/shares/{shareId}",
+    response_model=AdminResponse,
+    summary="删除分享记录",
+    description="后台删除分享记录，并同步扣减内容分享数。",
+)
+def delete_admin_share(
+    shareId: Annotated[int, Path(description="分享记录 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    share = db.query(PostShare).filter(PostShare.id == shareId).one_or_none()
+    if share is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "分享记录未找到")
+    post = db.query(Post).filter(Post.post_id == share.post_id).one_or_none()
+    if post is not None:
+        post.share_count = max(0, post.share_count - 1)
+        post.last_time = utc_now()
+    db.delete(share)
+    db.commit()
+    return ok(None, "分享记录已删除")
 
 
 @router.get(

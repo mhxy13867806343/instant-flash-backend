@@ -388,6 +388,41 @@ def test_post_feed_tabs_search_and_location() -> None:
     assert search_list.json()["items"][0]["location"] == "杭州·西湖"
 
 
+def test_admin_like_share_lists_and_routes() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    token_response = client.post(
+        "/api/auth/dev-token",
+        json={"userId": "usr_like_share", "nickname": "互动用户"},
+    )
+    user_headers = {"Authorization": f"Bearer {token_response.json()['accessToken']}"}
+    post_response = client.post("/api/posts", json={"content": "互动验证内容", "images": []}, headers=user_headers)
+    post_id = post_response.json()["postId"]
+    assert client.post(f"/api/posts/{post_id}/like", headers=user_headers).status_code == 200
+    assert client.post(f"/api/posts/{post_id}/share", json={"scene": "timeline", "platform": "wechat"}, headers=user_headers).status_code == 201
+
+    admin_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['token']}"}
+
+    routes = client.get("/api/admin/menus/routes", headers=admin_headers)
+    route_names = {item["name"] for item in routes.json()["data"]["flatList"]}
+    assert {"LikeList", "ShareList"} <= route_names
+    assert "like" in routes.json()["data"]["permissions"]
+    assert "share" in routes.json()["data"]["permissions"]
+
+    likes = client.get("/api/admin/likes", params={"postId": post_id, "keyword": "互动"}, headers=admin_headers)
+    assert likes.status_code == 200
+    assert likes.json()["data"]["total"] == 1
+    assert likes.json()["data"]["list"][0]["userId"] == "usr_like_share"
+
+    shares = client.get("/api/admin/shares", params={"postId": post_id, "platform": "wechat"}, headers=admin_headers)
+    assert shares.status_code == 200
+    assert shares.json()["data"]["total"] == 1
+    assert shares.json()["data"]["list"][0]["scene"] == "timeline"
+
+
 def test_auth_errors_are_unified() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
