@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.admin import fail, read_user_import_rows, user_export_response
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
+from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
@@ -82,6 +83,12 @@ def update_profile(
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> UserProfile:
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "phone":
+            value = normalize_phone(value)
+        elif field == "client_type":
+            value = normalize_client_type(value)
+        elif field == "client_subtype":
+            value = normalize_client_subtype(value)
         setattr(current_user, field, value)
     current_user.last_time = utc_now()
     db.commit()
@@ -150,10 +157,17 @@ def import_user_data(
         raise fail(status.HTTP_400_BAD_REQUEST, "暂不支持该导入类型")
     rows = read_user_import_rows(file.filename or "", file.file.read())
     row = rows[0]
-    for field in ("phone", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
+    for field in ("phone", "clientType", "clientSubtype", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
         value = row.get(field)
         if value:
-            setattr(current_user, field, value)
+            if field == "phone":
+                current_user.phone = normalize_phone(value)
+            elif field == "clientType":
+                current_user.client_type = normalize_client_type(value)
+            elif field == "clientSubtype":
+                current_user.client_subtype = normalize_client_subtype(value)
+            else:
+                setattr(current_user, field, value)
     current_user.last_time = utc_now()
     db.commit()
     db.refresh(current_user)

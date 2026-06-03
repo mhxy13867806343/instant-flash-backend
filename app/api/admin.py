@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
 from app.core.security import create_access_token, decode_access_token, revoke_access_token
 from app.db.base import utc_now
@@ -278,6 +279,7 @@ def get_admin_subject(
 
 
 def user_item(db: Session, user: User) -> dict[str, Any]:
+    phone = user.phone or phone_from_user_id(user.user_id) or ""
     post_count = (
         db.query(func.count(Post.id))
         .filter(Post.user_id == user.user_id, Post.is_deleted.is_(False))
@@ -300,8 +302,10 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         "userId": user.user_id,
         "nickname": user.nickname or "即闪用户",
         "avatar": user.avatar or "",
-        "phone": user.phone or "",
-        "newPhone": user.phone or "",
+        "phone": phone,
+        "newPhone": "",
+        "clientType": user.client_type or "",
+        "clientSubtype": user.client_subtype or "",
         "status": "normal" if user.is_active else "banned",
         "regTime": format_time(user.create_time),
         "postCount": post_count,
@@ -317,6 +321,8 @@ USER_EXPORT_HEADERS = [
     ("用户ID", "userId"),
     ("昵称", "nickname"),
     ("手机号", "phone"),
+    ("移动端类型", "clientType"),
+    ("小程序类型", "clientSubtype"),
     ("openid", "openid"),
     ("unionid", "unionid"),
     ("性别", "gender"),
@@ -338,6 +344,17 @@ USER_IMPORT_HEADER_ALIASES = {
     "手机号": "phone",
     "手机号码": "phone",
     "phone": "phone",
+    "移动端类型": "clientType",
+    "客户端类型": "clientType",
+    "clientType": "clientType",
+    "client_type": "clientType",
+    "platform": "clientType",
+    "小程序类型": "clientSubtype",
+    "小程序端类型": "clientSubtype",
+    "clientSubtype": "clientSubtype",
+    "client_subtype": "clientSubtype",
+    "miniProgramType": "clientSubtype",
+    "mpType": "clientSubtype",
     "昵称": "nickname",
     "用户昵称": "nickname",
     "nickname": "nickname",
@@ -364,14 +381,17 @@ USER_IMPORT_HEADER_ALIASES = {
     "是否启用": "isActive",
     "isActive": "isActive",
 }
-USER_IMPORT_FIELDS = {"userId", "openid", "unionid", "phone", "nickname", "avatar", "gender", "bio", "province", "city", "district", "status", "isActive"}
+USER_IMPORT_FIELDS = {"userId", "openid", "unionid", "phone", "clientType", "clientSubtype", "nickname", "avatar", "gender", "bio", "province", "city", "district", "status", "isActive"}
 
 
 def export_user_row(user: User) -> dict[str, str]:
+    phone = user.phone or phone_from_user_id(user.user_id) or ""
     return {
         "userId": user.user_id,
         "nickname": user.nickname or "",
-        "phone": user.phone or "",
+        "phone": phone,
+        "clientType": user.client_type or "",
+        "clientSubtype": user.client_subtype or "",
         "openid": user.openid or "",
         "unionid": user.unionid or "",
         "gender": user.gender or "",
@@ -501,7 +521,7 @@ def import_users_from_rows(db: Session, rows: list[dict[str, str]]) -> dict[str,
     updated = 0
     for index, row in enumerate(rows, start=2):
         user_id = row.get("userId", "")
-        phone = row.get("phone", "")
+        phone = normalize_phone(row.get("phone", "")) or phone_from_user_id(user_id) or ""
         openid = row.get("openid", "")
         unionid = row.get("unionid", "")
         if not any([user_id, phone, openid, unionid]):
@@ -530,7 +550,15 @@ def import_users_from_rows(db: Session, rows: list[dict[str, str]]) -> dict[str,
             else:
                 updated += 1
 
-            for field in ("openid", "unionid", "phone", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
+            if phone:
+                user.phone = phone
+            client_type = normalize_client_type(row.get("clientType"))
+            client_subtype = normalize_client_subtype(row.get("clientSubtype"))
+            if client_type:
+                user.client_type = client_type
+            if client_subtype:
+                user.client_subtype = client_subtype
+            for field in ("openid", "unionid", "nickname", "avatar", "gender", "bio", "province", "city", "district"):
                 value = row.get(field)
                 if value:
                     setattr(user, field, value)
@@ -1807,7 +1835,8 @@ def list_admin_users(
     if nickname:
         query = query.filter(User.nickname.ilike(f"%{nickname}%"))
     if phone:
-        query = query.filter(User.phone.ilike(f"%{phone}%"))
+        phone_value = normalize_phone(phone) or phone
+        query = query.filter(or_(User.phone.ilike(f"%{phone_value}%"), User.user_id.ilike(f"%{phone_value}%")))
     if status_filter == "normal":
         query = query.filter(User.is_active.is_(True))
     elif status_filter == "banned":
@@ -1835,7 +1864,8 @@ def export_admin_users(
     if nickname:
         query = query.filter(User.nickname.ilike(f"%{nickname}%"))
     if phone:
-        query = query.filter(User.phone.ilike(f"%{phone}%"))
+        phone_value = normalize_phone(phone) or phone
+        query = query.filter(or_(User.phone.ilike(f"%{phone_value}%"), User.user_id.ilike(f"%{phone_value}%")))
     if status_filter == "normal":
         query = query.filter(User.is_active.is_(True))
     elif status_filter == "banned":

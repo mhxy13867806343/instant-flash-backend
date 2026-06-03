@@ -1136,3 +1136,55 @@ def test_wx_login() -> None:
     assert body["accessToken"]
     assert body["token"] == body["accessToken"]
     assert body["user"]["nickname"] == "微信用户"
+
+
+def test_mobile_phone_login_uses_mp_user_id_and_client_type() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/auth/dev-token",
+        json={
+            "userId": "h5-18072783978",
+            "nickname": "移动端用户",
+            "clientType": "安卓",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["userId"] == "mp-18072783978"
+
+    profile = client.get("/api/user/profile", headers={"Authorization": f"Bearer {response.json()['accessToken']}"})
+    assert profile.status_code == 200
+    assert profile.json()["phone"] == "18072783978"
+    assert profile.json()["clientType"] == "android"
+
+    admin_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['token']}"}
+    detail = client.get("/api/admin/users/mp-18072783978", headers=admin_headers)
+    assert detail.status_code == 200
+    assert detail.json()["data"]["phone"] == "18072783978"
+    assert detail.json()["data"]["clientType"] == "android"
+
+
+def test_wx_login_with_phone_records_mobile_type() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/auth/wx-login",
+        json={
+            "code": "mobile-code",
+            "phone": "180 7278 3979",
+            "nickname": "小程序用户",
+            "clientType": "miniprogram",
+            "clientSubtype": "weixin",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["userId"] == "mp-18072783979"
+    assert body["user"]["phone"] == "18072783979"
+    assert body["user"]["clientType"] == "miniprogram"
+    assert body["user"]["clientSubtype"] == "wechat"

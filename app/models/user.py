@@ -18,6 +18,8 @@ class User(TimestampMixin, Base):
     avatar: Mapped[str | None] = mapped_column(Text)
     gender: Mapped[str | None] = mapped_column(String(16))
     bio: Mapped[str | None] = mapped_column(Text)
+    client_type: Mapped[str | None] = mapped_column(String(32), index=True)
+    client_subtype: Mapped[str | None] = mapped_column(String(64))
     province: Mapped[str | None] = mapped_column(String(64))
     city: Mapped[str | None] = mapped_column(String(64))
     district: Mapped[str | None] = mapped_column(String(64))

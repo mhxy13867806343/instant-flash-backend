@@ -17,7 +17,7 @@ class Post(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     post_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.user_id"), index=True, nullable=False
+        String(64), ForeignKey("users.user_id", onupdate="CASCADE"), index=True, nullable=False
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     images: Mapped[list[Any]] = mapped_column(

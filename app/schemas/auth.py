@@ -20,9 +20,27 @@ class DevTokenRequest(BaseModel):
     nickname: str | None = Field(default=None, max_length=64, title="昵称", description="用户昵称")
     avatar: str | None = Field(default=None, title="头像", description="用户头像 URL")
     bio: str | None = Field(default=None, max_length=300, title="个性签名", description="用户个人简介/个性签名")
+    client_type: str | None = Field(
+        default=None,
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default=None,
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    )
 
 
 class WxLoginRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     code: str = Field(min_length=1, max_length=256, title="微信登录 code", description="小程序 uni.login/wx.login 返回的临时 code")
     nickname: str | None = Field(default=None, max_length=64, title="昵称", description="微信授权昵称")
     avatar: str | None = Field(default=None, title="头像", description="微信头像 URL")
@@ -32,6 +50,22 @@ class WxLoginRequest(BaseModel):
     province: str | None = Field(default=None, max_length=64, title="省份", description="省份")
     city: str | None = Field(default=None, max_length=64, title="城市", description="城市")
     district: str | None = Field(default=None, max_length=64, title="区县", description="区县")
+    client_type: str | None = Field(
+        default="miniprogram",
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default="wechat",
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    )
 
 
 class TokenResponse(BaseModel):

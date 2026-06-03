@@ -14,10 +14,9 @@ class PostShare(TimestampMixin, Base):
         String(64), ForeignKey("posts.post_id"), index=True, nullable=False
     )
     user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.user_id"), index=True, nullable=False
+        String(64), ForeignKey("users.user_id", onupdate="CASCADE"), index=True, nullable=False
     )
     scene: Mapped[str | None] = mapped_column(String(64))
     platform: Mapped[str | None] = mapped_column(String(64))
 
     post = relationship("Post", back_populates="shares")
-

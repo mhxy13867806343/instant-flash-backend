@@ -22,6 +22,22 @@ class UserProfileUpdate(BaseModel):
     city: str | None = Field(default=None, max_length=64, title="城市", description="用户所在城市")
     district: str | None = Field(default=None, max_length=64, title="区县", description="用户所在区县")
     phone: str | None = Field(default=None, max_length=32, title="手机号", description="用户手机号")
+    client_type: str | None = Field(
+        default=None,
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default=None,
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    )
 
 
 class UserProfile(BaseModel):
@@ -31,6 +47,8 @@ class UserProfile(BaseModel):
     openid: str | None = Field(default=None, title="微信 OpenID", description="微信小程序 OpenID")
     unionid: str | None = Field(default=None, title="微信 UnionID", description="微信开放平台 UnionID")
     phone: str | None = Field(default=None, title="手机号", description="用户手机号")
+    clientType: str | None = Field(default=None, title="移动端类型", description="android/ios/harmonyos/miniprogram/h5")
+    clientSubtype: str | None = Field(default=None, title="小程序类型", description="wechat/alipay/douyin/qq/baidu 等")
     nickname: str | None = Field(default=None, title="昵称", description="用户昵称")
     avatar: str | None = Field(default=None, title="头像", description="用户头像 URL")
     gender: str | None = Field(default=None, title="性别", description="用户性别")

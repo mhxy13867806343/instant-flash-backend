@@ -17,7 +17,7 @@ class Comment(TimestampMixin, Base):
         String(64), ForeignKey("posts.post_id"), index=True, nullable=False
     )
     user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.user_id"), index=True, nullable=False
+        String(64), ForeignKey("users.user_id", onupdate="CASCADE"), index=True, nullable=False
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     parent_id: Mapped[str | None] = mapped_column(String(64), index=True)
@@ -26,4 +26,3 @@ class Comment(TimestampMixin, Base):
     delete_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     post = relationship("Post", back_populates="comments")
-

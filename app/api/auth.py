@@ -8,9 +8,19 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import bearer_required, get_current_user_required
+from app.api.user_identity import (
+    mobile_user_id,
+    normalize_client_subtype,
+    normalize_client_type,
+    normalize_phone,
+    phone_from_user_id,
+    should_use_mobile_user_id,
+)
 from app.api.utils import new_business_id
 from app.core.security import create_access_token, revoke_access_token
 from app.db.session import get_db
+from app.models.comment import Comment
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse
 
@@ -22,6 +32,30 @@ def fail(status_code: int, message: str) -> HTTPException:
         status_code=status_code,
         detail={"code": status_code, "message": message, "data": {}},
     )
+
+
+def migrate_mobile_user_id(db: Session, user: User, target_user_id: str) -> User:
+    if user.user_id == target_user_id:
+        return user
+
+    existing = db.query(User).filter(User.user_id == target_user_id, User.id != user.id).one_or_none()
+    if existing is not None:
+        return existing
+
+    old_user_id = user.user_id
+    user.user_id = target_user_id
+    db.flush()
+    db.query(Comment).filter(Comment.reply_to_user_id == old_user_id).update({Comment.reply_to_user_id: target_user_id})
+    db.query(Message).filter(Message.user_id == old_user_id).update({Message.user_id: target_user_id})
+    db.query(Message).filter(Message.sender_id == old_user_id).update({Message.sender_id: target_user_id})
+    return user
+
+
+def infer_mobile_identity(user_id: str | None, phone: str | None, client_type: str | None) -> tuple[str | None, str | None]:
+    normalized_phone = normalize_phone(phone) or phone_from_user_id(user_id)
+    if should_use_mobile_user_id(user_id, normalized_phone, client_type):
+        return mobile_user_id(normalized_phone), normalized_phone
+    return user_id, normalized_phone
 
 
 @router.post(
@@ -45,14 +79,20 @@ def user_logout(
     description="开发联调用接口：创建或更新测试用户，并返回 Bearer Token。",
 )
 def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user_id = payload.user_id or new_business_id("usr")
+    client_type = normalize_client_type(payload.client_type)
+    client_subtype = normalize_client_subtype(payload.client_subtype)
+    inferred_user_id, phone = infer_mobile_identity(payload.user_id, payload.phone, client_type)
+    user_id = inferred_user_id or new_business_id("usr")
     lookup_conditions = [User.user_id == user_id]
+    legacy_phone = phone_from_user_id(payload.user_id)
+    if legacy_phone:
+        lookup_conditions.append(User.user_id == f"h5-{legacy_phone}")
     if payload.openid:
         lookup_conditions.append(User.openid == payload.openid)
     if payload.unionid:
         lookup_conditions.append(User.unionid == payload.unionid)
-    if payload.phone:
-        lookup_conditions.append(User.phone == payload.phone)
+    if phone:
+        lookup_conditions.append(User.phone == phone)
 
     matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
     if len({user.id for user in matched_users}) > 1:
@@ -60,13 +100,23 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
 
     user = matched_users[0] if matched_users else None
     if user is not None and user.user_id != user_id:
-        raise fail(status.HTTP_400_BAD_REQUEST, "该 openid/unionid/phone 已绑定其他 userId")
+        if phone and phone_from_user_id(user.user_id) == phone:
+            user = migrate_mobile_user_id(db, user, user_id)
+        else:
+            raise fail(status.HTTP_400_BAD_REQUEST, "该 openid/unionid/phone 已绑定其他 userId")
 
     if user is None:
         user = User(user_id=user_id)
         db.add(user)
 
-    for field in ("openid", "unionid", "phone", "nickname", "avatar", "bio"):
+    if phone:
+        user.phone = phone
+    if client_type:
+        user.client_type = client_type
+    if client_subtype:
+        user.client_subtype = client_subtype
+
+    for field in ("openid", "unionid", "nickname", "avatar", "bio"):
         value = getattr(payload, field)
         if value is not None:
             setattr(user, field, value)
@@ -85,12 +135,35 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
 )
 def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginResponse:
     openid = f"mock_openid_{payload.code}"
-    user = db.query(User).filter(User.openid == openid).one_or_none()
+    client_type = normalize_client_type(payload.client_type) or "miniprogram"
+    client_subtype = normalize_client_subtype(payload.client_subtype) or ("wechat" if client_type == "miniprogram" else None)
+    phone = normalize_phone(payload.phone)
+    target_user_id = mobile_user_id(phone) if phone else None
+    lookup_conditions = [User.openid == openid]
+    if phone:
+        lookup_conditions.extend([User.phone == phone, User.user_id == target_user_id, User.user_id == f"h5-{phone}"])
+    matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
+    if len({user.id for user in matched_users}) > 1:
+        target_matches = [item for item in matched_users if target_user_id and item.user_id == target_user_id]
+        if target_matches:
+            user = target_matches[0]
+        else:
+            raise fail(status.HTTP_400_BAD_REQUEST, "手机号/openid 命中多个用户，请检查登录绑定关系")
+    else:
+        user = matched_users[0] if matched_users else None
     if user is None:
-        user = User(user_id=new_business_id("usr"), openid=openid)
+        user = User(user_id=target_user_id or new_business_id("usr"), openid=openid)
         db.add(user)
+    elif target_user_id and user.user_id != target_user_id:
+        user = migrate_mobile_user_id(db, user, target_user_id)
 
-    for field in ("nickname", "avatar", "phone", "gender", "bio", "province", "city", "district"):
+    user.openid = user.openid or openid
+    if phone:
+        user.phone = phone
+    user.client_type = client_type
+    user.client_subtype = client_subtype
+
+    for field in ("nickname", "avatar", "gender", "bio", "province", "city", "district"):
         value = getattr(payload, field)
         if value is not None:
             setattr(user, field, value)
@@ -108,6 +181,8 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             "nickname": user.nickname,
             "avatar": user.avatar,
             "phone": user.phone,
+            "clientType": user.client_type,
+            "clientSubtype": user.client_subtype,
             "gender": user.gender,
             "bio": user.bio,
             "signature": user.bio,
