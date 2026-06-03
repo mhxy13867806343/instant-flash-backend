@@ -372,12 +372,16 @@ def list_comment_replies(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
     root_comment_id = _thread_root_id(comments_by_id, source_comment)
     replies = _flatten_comment_replies(db, comments, root_comment_id)
+    requested_offset = resolved_offset
+    if page is None and replies and requested_offset == len(replies):
+        resolved_offset = len(replies) - 1
     page_items = replies[resolved_offset : resolved_offset + resolved_limit]
     resolved_page = (resolved_offset // resolved_limit) + 1
     response.headers["X-Total-Count"] = str(len(replies))
     response.headers["X-Comment-Total"] = str(len(replies))
     response.headers["X-Limit"] = str(resolved_limit)
     response.headers["X-Offset"] = str(resolved_offset)
+    response.headers["X-Requested-Offset"] = str(requested_offset)
     response.headers["X-Root-Comment-Id"] = root_comment_id
     return CommentListResponse(
         comments=page_items,

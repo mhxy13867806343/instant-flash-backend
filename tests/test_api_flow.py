@@ -474,6 +474,20 @@ def test_comment_replies_are_nested_under_parent() -> None:
         nested_reply.json()["commentId"],
     ]
 
+    mobile_offset_page = client.get(
+        f"/api/posts/{post_id}/comments/{parent.json()['commentId']}/replies?limit=10&offset=2"
+    )
+    assert mobile_offset_page.status_code == 200
+    assert mobile_offset_page.headers["X-Requested-Offset"] == "2"
+    assert mobile_offset_page.headers["X-Offset"] == "1"
+    assert mobile_offset_page.json()["list"][0]["commentId"] == nested_reply.json()["commentId"]
+
+    too_large_offset_page = client.get(
+        f"/api/posts/{post_id}/comments/{parent.json()['commentId']}/replies?limit=10&offset=999"
+    )
+    assert too_large_offset_page.status_code == 200
+    assert too_large_offset_page.json()["list"] == []
+
 
 def test_admin_like_share_lists_and_routes() -> None:
     Base.metadata.drop_all(bind=engine)
