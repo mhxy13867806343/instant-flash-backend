@@ -277,7 +277,7 @@ def test_admin_flow() -> None:
     assert profile_import.json()["data"]["signature"] == "导入签名"
     profile_update = client.put(
         "/api/user/profile",
-        json={"nickname": "编辑资料用户", "gender": "保密", "signature": "记录生活灵感"},
+        json={"nickname": "编辑资料用户", "gender": "保密", "personalSignature": "记录生活灵感"},
         headers=user_headers,
     )
     assert profile_update.status_code == 200

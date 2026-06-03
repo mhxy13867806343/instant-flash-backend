@@ -13,10 +13,20 @@ class UserProfileUpdate(BaseModel):
     gender: str | None = Field(default=None, max_length=16, title="性别", description="男/女/保密等展示值")
     bio: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("bio", "signature", "intro"),
+        validation_alias=AliasChoices(
+            "bio",
+            "signature",
+            "intro",
+            "sign",
+            "personalSignature",
+            "personal_signature",
+            "description",
+            "desc",
+            "summary",
+        ),
         max_length=300,
         title="个性签名",
-        description="用户个人简介/个性签名，兼容 signature、intro 字段",
+        description="用户个人简介/个性签名，兼容 signature、intro、sign、personalSignature、description 等字段",
     )
     province: str | None = Field(default=None, max_length=64, title="省份", description="用户所在省份")
     city: str | None = Field(default=None, max_length=64, title="城市", description="用户所在城市")
