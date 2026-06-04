@@ -24,7 +24,11 @@ class Post(TimestampMixin, Base):
     province: Mapped[str | None] = mapped_column(String(64))
     city: Mapped[str | None] = mapped_column(String(64), index=True)
     district: Mapped[str | None] = mapped_column(String(64))
+    visibility: Mapped[str] = mapped_column(String(32), default="public", nullable=False)
     images: Mapped[list[Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )
+    topics: Mapped[list[Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
     )
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

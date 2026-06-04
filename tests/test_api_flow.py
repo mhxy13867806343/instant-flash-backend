@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import hashlib
 import io
+import base64
 from datetime import timedelta
 from pathlib import Path
 
@@ -20,6 +21,11 @@ from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.system_config import AdminTag  # noqa: E402
 from app.models.user import User  # noqa: E402
+
+VALID_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lDsa6wAAAABJRU5ErkJggg=="
+)
+VALID_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42mp41"
 
 
 def test_index_page() -> None:
@@ -188,16 +194,98 @@ def test_content_flow() -> None:
     token = token_response.json()["accessToken"]
     headers = {"Authorization": f"Bearer {token}"}
 
+    upload_response = client.post(
+        "/api/upload/media",
+        files={"file": ("hero.png", VALID_PNG_BYTES, "image/png")},
+        headers=headers,
+    )
+    assert upload_response.status_code == 200
+    uploaded_image = upload_response.json()["data"]
+    assert uploaded_image["url"].startswith("static/v1/upload/image/usr_test/")
+    assert uploaded_image["type"] == "image"
+
+    upload_without_suffix = client.post(
+        "/api/upload/media",
+        files={"file": ("blob-upload", VALID_PNG_BYTES, "image/png")},
+        headers=headers,
+    )
+    assert upload_without_suffix.status_code == 200
+    assert upload_without_suffix.json()["data"]["url"].endswith(".png")
+
+    invalid_upload = client.post(
+        "/api/upload/media",
+        files={"file": ("bad.png", b"not-a-real-png", "image/png")},
+        headers=headers,
+    )
+    assert invalid_upload.status_code == 400
+    assert invalid_upload.json()["message"] == "图片文件内容不正确"
+
+    video_upload_response = client.post(
+        "/api/upload/media",
+        files={"file": ("clip", VALID_MP4_BYTES, "video/mp4")},
+        headers=headers,
+    )
+    assert video_upload_response.status_code == 200
+    uploaded_video = video_upload_response.json()["data"]
+    assert uploaded_video["url"].startswith("static/v1/upload/video/usr_test/")
+    assert uploaded_video["type"] == "video"
+
     create_response = client.post(
         "/api/posts",
-        json={"content": "hello", "images": ["https://example.com/a.png"]},
+        json={
+            "content": "hello",
+            "images": [uploaded_image["url"]],
+            "topics": ["#同城发现", "#灵感记录"],
+            "visibility": "public",
+        },
         headers=headers,
     )
     assert create_response.status_code == 201
+    assert create_response.json()["images"] == [uploaded_image["url"]]
+    assert create_response.json()["topics"] == ["#同城发现", "#灵感记录"]
+    assert create_response.json()["visibility"] == "public"
     post_id = create_response.json()["postId"]
+
+    video_post_response = client.post(
+        "/api/posts",
+        json={"content": "video", "images": [], "videos": [uploaded_video["url"]], "visibility": "public"},
+        headers=headers,
+    )
+    assert video_post_response.status_code == 201
+    video_post = video_post_response.json()
+    assert video_post["images"][0]["url"] == uploaded_video["url"]
+    assert video_post["images"][0]["type"] == "video"
+    assert video_post["videos"][0]["url"] == uploaded_video["url"]
+    assert video_post["media"][0]["url"] == uploaded_video["url"]
+
+    private_response = client.post(
+        "/api/posts",
+        json={"content": "private", "images": [], "visibility": "private"},
+        headers=headers,
+    )
+    assert private_response.status_code == 201
+    assert private_response.json()["visibility"] == "private"
+    assert client.get(f"/api/posts/{private_response.json()['postId']}").status_code == 404
+    assert client.get(f"/api/posts/{private_response.json()['postId']}", headers=headers).status_code == 200
+
+    draft_response = client.post(
+        "/api/posts",
+        json={"content": "draft", "images": [], "status": "draft"},
+        headers=headers,
+    )
+    assert draft_response.status_code == 201
+    assert draft_response.json()["status"] == "draft"
+    assert client.get(f"/api/posts/{draft_response.json()['postId']}").status_code == 404
+    assert client.get(f"/api/posts/{draft_response.json()['postId']}", headers=headers).status_code == 200
+    admin_login = client.post("/api/admin/auth/login", json={"username": "admin", "password": "123456"})
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['data']['token']}"}
+    admin_drafts = client.get("/api/admin/posts", params={"status": "offline"}, headers=admin_headers)
+    assert admin_drafts.status_code == 200
+    assert draft_response.json()["postId"] in [item["postId"] for item in admin_drafts.json()["data"]["list"]]
 
     public_detail = client.get(f"/api/posts/{post_id}")
     assert public_detail.status_code == 200
+    assert public_detail.json()["topics"] == ["#同城发现", "#灵感记录"]
     assert public_detail.json()["isLiked"] is False
     assert public_detail.json()["isOwner"] is False
 
@@ -222,7 +310,14 @@ def test_content_flow() -> None:
 
     mine = client.get("/api/user/posts", headers=headers)
     assert mine.status_code == 200
-    assert mine.json()["total"] == 1
+    assert mine.json()["total"] == 4
+    public_list = client.get("/api/posts")
+    assert public_list.status_code == 200
+    public_items = public_list.json()["items"]
+    assert post_id in [item["postId"] for item in public_items]
+    assert next(item for item in public_items if item["postId"] == post_id)["topics"] == ["#同城发现", "#灵感记录"]
+    assert private_response.json()["postId"] not in [item["postId"] for item in public_items]
+    assert draft_response.json()["postId"] not in [item["postId"] for item in public_items]
 
     logout = client.post("/api/auth/logout", headers=headers)
     assert logout.status_code == 200

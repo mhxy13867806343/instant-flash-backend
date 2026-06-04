@@ -36,19 +36,42 @@ def user_profile(user: User) -> UserProfile:
     )
 
 
+def media_type(item: object) -> str | None:
+    if isinstance(item, dict):
+        explicit_type = str(item.get("type") or item.get("mediaType") or "").strip().lower()
+        if explicit_type in {"image", "video"}:
+            return explicit_type
+        url = item.get("url")
+        if isinstance(url, str):
+            return media_type(url)
+    if isinstance(item, str):
+        path = item.split("?", 1)[0].lower()
+        if path.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")) or "/image/" in path:
+            return "image"
+        if path.endswith((".mp4", ".mov", ".m4v", ".webm", ".avi")) or "/video/" in path:
+            return "video"
+    return None
+
+
 def post_out(post: Post, current_user: User | None, is_liked: bool) -> PostOut:
     is_owner = current_user is not None and current_user.user_id == post.user_id
+    media = post.images or []
+    videos = [item for item in media if media_type(item) == "video"]
     return PostOut(
         postId=post.post_id,
         userId=post.user_id,
         nickname=post.author.nickname if post.author else None,
         avatar=post.author.avatar if post.author else None,
         content=post.content,
-        images=post.images,
+        images=media,
+        videos=videos,
+        media=media,
+        topics=post.topics or [],
         location=post.location,
         province=post.province,
         city=post.city,
         district=post.district,
+        visibility=post.visibility,
         likeCount=post.like_count,
         commentCount=post.comment_count,
         shareCount=post.share_count,

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.serializers import media_type
 from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
 from app.core.security import create_access_token, decode_access_token, revoke_access_token
@@ -632,22 +633,30 @@ def import_users_from_rows(db: Session, rows: list[dict[str, str]]) -> dict[str,
 
 
 def post_status(post: Post) -> str:
-    return "offline" if post.status == "offline" else "online"
+    if post.status in {"offline", "draft"}:
+        return post.status
+    return "online"
 
 
 def post_item(post: Post) -> dict[str, Any]:
     author = post.author
+    media = post.images or []
+    videos = [item for item in media if media_type(item) == "video"]
     return {
         "postId": post.post_id,
         "userId": post.user_id,
         "nickname": author.nickname if author and author.nickname else "即闪用户",
         "avatar": author.avatar if author and author.avatar else "",
         "content": post.content,
-        "images": post.images,
+        "images": media,
+        "videos": videos,
+        "media": media,
+        "topics": post.topics or [],
         "location": post.location or "",
         "province": post.province or "",
         "city": post.city or "",
         "district": post.district or "",
+        "visibility": post.visibility,
         "likes": post.like_count,
         "comments": post.comment_count,
         "shares": post.share_count,
@@ -2139,7 +2148,7 @@ def list_admin_posts(
     nickname: Annotated[str | None, Query(description="发布人昵称，模糊匹配")] = None,
     userId: Annotated[str | None, Query(description="发布人业务用户 ID，精确匹配")] = None,
     user_id_legacy: Annotated[str | None, Query(alias="user_id", description="兼容旧参数 user_id", include_in_schema=False)] = None,
-    status_filter: Annotated[str | None, Query(alias="status", description="内容状态：online 已上架，offline 已下架")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="内容状态：online 已上架，offline 已下架，draft 草稿")] = None,
     content: Annotated[str | None, Query(description="内容正文关键词，模糊匹配")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 5,
@@ -2149,9 +2158,11 @@ def list_admin_posts(
     if user_id:
         query = query.filter(Post.user_id == user_id)
     if status_filter == "online":
-        query = query.filter(Post.status != "offline")
+        query = query.filter(Post.status.in_(("online", "published")))
     elif status_filter == "offline":
-        query = query.filter(Post.status == "offline")
+        query = query.filter(Post.status.in_(("offline", "draft")))
+    elif status_filter == "draft":
+        query = query.filter(Post.status == "draft")
     if content:
         query = query.filter(Post.content.ilike(f"%{content}%"))
     if nickname:

@@ -23,6 +23,88 @@ from app.schemas.share import ShareCreate, ShareOut
 router = APIRouter(prefix="/api/posts", tags=["用户端内容"])
 
 VISIBLE_POST_STATUSES = ("online", "published")
+PUBLIC_VISIBILITY = "public"
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi")
+
+
+def _media_kind_from_url(url: str) -> str | None:
+    path = url.split("?", 1)[0].lower()
+    if path.endswith(IMAGE_SUFFIXES) or "/image/" in path:
+        return "image"
+    if path.endswith(VIDEO_SUFFIXES) or "/video/" in path:
+        return "video"
+    return None
+
+
+def _media_kind(item: object) -> str | None:
+    if isinstance(item, str):
+        return _media_kind_from_url(item)
+    if isinstance(item, dict):
+        explicit_type = str(item.get("type") or item.get("mediaType") or "").strip().lower()
+        if explicit_type in {"image", "video"}:
+            return explicit_type
+        url = item.get("url")
+        if isinstance(url, str):
+            return _media_kind_from_url(url)
+    return None
+
+
+def _normalize_media_item(item: object, fallback_type: str | None = None) -> object:
+    resolved_type = _media_kind(item) or fallback_type
+    if isinstance(item, str):
+        if fallback_type == "video":
+            return {"url": item, "type": "video", "mediaType": "video"}
+        return item
+    if isinstance(item, dict):
+        normalized = dict(item)
+        if resolved_type:
+            normalized.setdefault("type", resolved_type)
+            normalized.setdefault("mediaType", resolved_type)
+        return normalized
+    return item
+
+
+def _combined_media(
+    images: list[object] | None = None,
+    videos: list[object] | None = None,
+    media: list[object] | None = None,
+) -> list[object]:
+    combined: list[object] = []
+    for item in media or []:
+        combined.append(_normalize_media_item(item))
+    for item in images or []:
+        combined.append(_normalize_media_item(item, "image"))
+    for item in videos or []:
+        combined.append(_normalize_media_item(item, "video"))
+    return combined
+
+
+def _normalize_topics(topics: list[object] | None) -> list[object]:
+    normalized: list[object] = []
+    for topic in topics or []:
+        if isinstance(topic, str):
+            value = topic.strip()
+            if value:
+                normalized.append(value)
+            continue
+        if isinstance(topic, dict):
+            value = topic.get("label") or topic.get("name") or topic.get("title") or topic.get("value") or topic.get("topic")
+            if isinstance(value, str) and value.strip():
+                normalized.append(value.strip())
+            else:
+                normalized.append(topic)
+            continue
+        if topic is not None:
+            normalized.append(topic)
+    return normalized
+
+
+def _payload_field_was_set(payload: object, field_name: str) -> bool:
+    fields_set = getattr(payload, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(payload, "__fields_set__", set())
+    return field_name in fields_set
 
 
 def _page_to_limit_offset(page: int | None, page_size: int | None, limit: int, offset: int) -> tuple[int, int]:
@@ -40,11 +122,43 @@ def _get_visible_post(db: Session, post_id: str) -> Post:
             Post.post_id == post_id,
             Post.is_deleted.is_(False),
             Post.status.in_(VISIBLE_POST_STATUSES),
+            Post.visibility == PUBLIC_VISIBILITY,
         )
         .one_or_none()
     )
     if post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    return post
+
+
+def _get_post_for_detail(db: Session, post_id: str, current_user: User | None) -> Post:
+    post = (
+        db.query(Post)
+        .options(joinedload(Post.author))
+        .filter(Post.post_id == post_id, Post.is_deleted.is_(False))
+        .one_or_none()
+    )
+    if post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    is_owner = current_user is not None and current_user.user_id == post.user_id
+    if post.status in VISIBLE_POST_STATUSES and (post.visibility == PUBLIC_VISIBILITY or is_owner):
+        return post
+    if is_owner:
+        return post
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+
+def _get_owner_post(db: Session, post_id: str, current_user: User) -> Post:
+    post = (
+        db.query(Post)
+        .options(joinedload(Post.author))
+        .filter(Post.post_id == post_id, Post.is_deleted.is_(False))
+        .one_or_none()
+    )
+    if post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    if post.user_id != current_user.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only author can edit")
     return post
 
 
@@ -229,6 +343,7 @@ def list_posts(
     base_query = db.query(Post).filter(
         Post.is_deleted.is_(False),
         Post.status.in_(VISIBLE_POST_STATUSES),
+        Post.visibility == PUBLIC_VISIBILITY,
     )
     if any([resolved_keyword, province, city, district, location]):
         base_query = base_query.join(User, User.user_id == Post.user_id)
@@ -412,11 +527,14 @@ def create_post(
         post_id=new_business_id("post"),
         user_id=current_user.user_id,
         content=payload.content,
-        images=payload.images,
+        images=_combined_media(payload.images, payload.videos, payload.media),
+        topics=_normalize_topics(payload.topics),
         location=payload.location,
         province=payload.province,
         city=payload.city,
         district=payload.district,
+        visibility=payload.visibility,
+        status=payload.status,
     )
     db.add(post)
     db.commit()
@@ -437,7 +555,7 @@ def get_post_detail(
     current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> PostOut:
     post_id = postId
-    post = _get_visible_post(db, post_id)
+    post = _get_post_for_detail(db, post_id, current_user)
     liked = bool(
         current_user
         and db.query(PostLike.id)
@@ -463,14 +581,14 @@ def update_post(
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> PostOut:
     post_id = postId
-    post = _get_visible_post(db, post_id)
-    if post.user_id != current_user.user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only author can edit")
+    post = _get_owner_post(db, post_id, current_user)
 
     if payload.content is not None:
         post.content = payload.content
-    if payload.images is not None:
-        post.images = payload.images
+    if any(_payload_field_was_set(payload, field_name) for field_name in ("images", "videos", "media")):
+        post.images = _combined_media(payload.images, payload.videos, payload.media)
+    if payload.topics is not None:
+        post.topics = _normalize_topics(payload.topics)
     if payload.location is not None:
         post.location = payload.location
     if payload.province is not None:
@@ -479,6 +597,8 @@ def update_post(
         post.city = payload.city
     if payload.district is not None:
         post.district = payload.district
+    if payload.visibility is not None:
+        post.visibility = payload.visibility
     if payload.status is not None:
         post.status = payload.status
     post.last_time = utc_now()
@@ -505,9 +625,7 @@ def delete_post(
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> None:
     post_id = postId
-    post = _get_visible_post(db, post_id)
-    if post.user_id != current_user.user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only author can delete")
+    post = _get_owner_post(db, post_id, current_user)
 
     now = utc_now()
     post.is_deleted = True
