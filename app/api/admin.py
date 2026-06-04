@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Annotated, Any
 
@@ -38,7 +38,8 @@ DEFAULT_AGREEMENTS = {
 }
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
 PACKAGE_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "packages"
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule"]
+USER_ONLINE_WINDOW_SECONDS = 5 * 60
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule", "user_online"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -59,10 +60,11 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_agreement", "permission_key": "agreement", "label": "协议管理", "description": "用户协议和隐私协议", "sort": 150, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_log", "permission_key": "log", "label": "日志管理", "description": "后台登录日志与操作日志", "sort": 160, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_access_rule", "permission_key": "access_rule", "label": "黑白名单", "description": "接口限流黑名单与白名单配置", "sort": 170, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_user_online", "permission_key": "user_online", "label": "在线用户", "description": "查看用户端在线和离线用户", "sort": 180, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule", "user_online"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
     {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "like", "share", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
@@ -92,6 +94,7 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_user_agreement", "parent_id": "menu_system", "title": "用户协议", "path": "/agreement/user", "name": "UserAgreement", "component": "views/agreement/User", "icon": "Checked", "type": "menu", "permission": "agreement", "sort": 70},
     {"menu_id": "menu_log", "parent_id": "menu_system", "title": "日志管理", "path": "log/list", "name": "LogList", "component": "views/log/List", "icon": "Tickets", "type": "menu", "permission": "log", "sort": 80},
     {"menu_id": "menu_access_rule", "parent_id": "menu_system", "title": "黑白名单", "path": "security/access-rules", "name": "AccessRuleList", "component": "views/security/AccessRules", "icon": "Connection", "type": "menu", "permission": "access_rule", "sort": 90},
+    {"menu_id": "menu_user_online", "parent_id": "menu_system", "title": "在线用户", "path": "user/online", "name": "UserOnline", "component": "views/user/Online", "icon": "Monitor", "type": "menu", "permission": "user_online", "sort": 100},
 ]
 ADMIN_ONLY_ROUTE_NAMES = {"AccountProfile", "AccountSettings", "LogList"}
 ADMIN_ROUTE_ROLES = {"admin", "superadmin"}
@@ -318,6 +321,48 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         "bio": user.bio or "",
         "signature": user.bio or "",
         "gender": user.gender or "保密",
+    }
+
+
+def ensure_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def user_is_online(user: User, now: datetime | None = None) -> bool:
+    last_time = ensure_aware_utc(user.last_time)
+    if last_time is None or not user.is_active:
+        return False
+    current = ensure_aware_utc(now or utc_now()) or utc_now()
+    return last_time >= current - timedelta(seconds=USER_ONLINE_WINDOW_SECONDS)
+
+
+def user_online_item(user: User, now: datetime | None = None) -> dict[str, Any]:
+    phone = user.phone or phone_from_user_id(user.user_id) or ""
+    is_online = user_is_online(user, now)
+    last_time = ensure_aware_utc(user.last_time)
+    current = ensure_aware_utc(now or utc_now()) or utc_now()
+    inactive_seconds = int((current - last_time).total_seconds()) if last_time else None
+    return {
+        "userId": user.user_id,
+        "nickname": user.nickname or "即闪用户",
+        "avatar": user.avatar or "",
+        "phone": phone,
+        "newPhone": user.new_phone or "",
+        "clientType": user.client_type or "",
+        "clientSubtype": user.client_subtype or "",
+        "accountStatus": "normal" if user.is_active else "banned",
+        "isOnline": is_online,
+        "onlineStatus": "online" if is_online else "offline",
+        "onlineStatusText": "在线" if is_online else "离线",
+        "lastActiveAt": format_time(user.last_time),
+        "lastTime": format_time(user.last_time),
+        "inactiveSeconds": inactive_seconds,
+        "regTime": format_time(user.create_time),
+        "createdAt": format_time(user.create_time),
     }
 
 
@@ -1890,6 +1935,64 @@ def list_admin_users(
 
 
 @router.get(
+    "/user-online",
+    response_model=AdminResponse,
+    summary="用户端在线状态",
+    description="系统配置 - 在线用户列表。status 默认 all，可传 online/offline/all 查看在线、离线或全部用户端用户。",
+)
+def list_admin_user_online(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    status_filter: Annotated[str, Query(alias="status", pattern="^(all|online|offline)$", description="在线状态：all 全部，online 在线，offline 离线")] = "all",
+    keyword: Annotated[str | None, Query(description="用户 ID、昵称、手机号关键词")] = None,
+    userId: Annotated[str | None, Query(description="业务用户 ID，精确匹配")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    now = utc_now()
+    cutoff = now - timedelta(seconds=USER_ONLINE_WINDOW_SECONDS)
+    base_query = db.query(User).filter(User.is_active.is_(True))
+    if userId:
+        base_query = base_query.filter(User.user_id == userId)
+    if keyword:
+        normalized_keyword = normalize_phone(keyword) or keyword
+        base_query = base_query.filter(
+            or_(
+                User.user_id.ilike(f"%{keyword}%"),
+                User.nickname.ilike(f"%{keyword}%"),
+                User.phone.ilike(f"%{normalized_keyword}%"),
+                User.new_phone.ilike(f"%{normalized_keyword}%"),
+            )
+        )
+
+    online_condition = User.last_time >= cutoff
+    online_count = base_query.filter(online_condition).count()
+    total_all = base_query.count()
+    offline_count = total_all - online_count
+
+    query = base_query
+    if status_filter == "online":
+        query = query.filter(online_condition)
+    elif status_filter == "offline":
+        query = query.filter(~online_condition)
+
+    total = query.count()
+    users = query.order_by(User.last_time.desc(), User.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok(
+        {
+            "list": [user_online_item(user, now) for user in users],
+            "total": total,
+            "onlineCount": online_count,
+            "offlineCount": offline_count,
+            "status": status_filter,
+            "onlineWindowSeconds": USER_ONLINE_WINDOW_SECONDS,
+            "page": page,
+            "pageSize": limit,
+        }
+    )
+
+
+@router.get(
     "/users/export",
     summary="导出用户",
     description="导出用户列表，支持 .xls 和 .xlsx；默认导出 .xls。",
@@ -2019,7 +2122,7 @@ def update_admin_user_status(
     if user is None:
         raise fail(status.HTTP_404_NOT_FOUND, "用户未找到")
     user.is_active = payload.status == "normal"
-    user.last_time = utc_now()
+    user.last_time = utc_now() if user.is_active else utc_now() - timedelta(seconds=USER_ONLINE_WINDOW_SECONDS + 1)
     db.commit()
     return ok(None, "操作成功")
 

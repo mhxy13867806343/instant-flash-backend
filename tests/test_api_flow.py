@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import hashlib
 import io
+from datetime import timedelta
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
@@ -12,10 +13,13 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.api import locations as locations_api  # noqa: E402
 from app.core.config import settings  # noqa: E402
-from app.db.base import Base  # noqa: E402
-from app.db.session import engine  # noqa: E402
+from app.db.base import Base, utc_now  # noqa: E402
+from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.system_config import AdminTag  # noqa: E402
+from app.models.user import User  # noqa: E402
 
 
 def test_index_page() -> None:
@@ -43,6 +47,100 @@ def test_address_tree() -> None:
     assert body["data"][0]["value"] == "110000"
     assert body["data"][0]["label"] == "北京市"
     assert body["data"][0]["children"][0]["children"][0]["label"] == "东城区"
+
+
+def test_user_topics_default_limit_and_search() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+
+    default_response = client.get("/api/topics")
+    assert default_response.status_code == 200
+    assert default_response.json()["data"]["recommended"][0]["label"] == "#同城发现"
+    assert len(default_response.json()["data"]["recommended"]) <= 10
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    topic_names = [
+        "同城发现",
+        "灵感记录",
+        "今日穿搭",
+        "周末去哪",
+        "探店日常",
+        "夜市打卡",
+        "咖啡时间",
+        "运动搭子",
+        "旅行碎片",
+        "周末电影",
+        "职场日常",
+        "隐藏话题",
+    ]
+    with SessionLocal() as db:
+        for index, name in enumerate(topic_names, start=1):
+            db.add(
+                AdminTag(
+                    tag_id=f"tag_topic_{index}",
+                    name=name,
+                    color="",
+                    sort=index,
+                    status="disabled" if name == "隐藏话题" else "enabled",
+                    remark="用户端话题测试",
+                )
+            )
+        db.commit()
+
+    response = client.get("/api/topics")
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert len(body["recommended"]) == 10
+    assert body["recommended"][0]["label"] == "#同城发现"
+    assert body["recommended"][-1]["label"] == "#周末电影"
+    assert "#职场日常" not in {item["label"] for item in body["recommended"]}
+    assert "#隐藏话题" not in {item["label"] for item in body["recommended"]}
+
+    search_response = client.get("/api/topics", params={"keyword": "咖啡"})
+    assert search_response.status_code == 200
+    search_body = search_response.json()["data"]
+    assert len(search_body["recommended"]) == 10
+    assert search_body["searchTotal"] == 1
+    assert search_body["searchResults"][0]["label"] == "#咖啡时间"
+
+    alias_response = client.get("/api/tags", params={"limit": 3})
+    assert alias_response.status_code == 200
+    assert [item["label"] for item in alias_response.json()["data"]["list"]] == ["#同城发现", "#灵感记录", "#今日穿搭"]
+
+
+def test_nearby_locations_from_coordinates(monkeypatch) -> None:
+    client = TestClient(app)
+
+    def fake_search_nearby_pois(longitude: float, latitude: float, keyword: str, radius: int, limit: int, offset: int) -> dict[str, object]:
+        assert longitude == 120.211
+        assert latitude == 30.208
+        assert radius == 3000
+        assert limit == 10
+        assert offset == 0
+        return {
+            "count": 2,
+            "pois": [
+                {"name": "滨江天街", "address": "浙江省杭州市滨江区江汉路", "lonlat": "120.211,30.208", "hotPointID": "poi_1"},
+                {"name": "湖滨银泰", "address": "浙江省杭州市上城区延安路", "lonlat": "120.165,30.256", "hotPointID": "poi_2"},
+            ],
+        }
+
+    monkeypatch.setattr(locations_api, "reverse_geocode_city", lambda longitude, latitude: "杭州")
+    monkeypatch.setattr(locations_api, "search_nearby_pois", fake_search_nearby_pois)
+
+    response = client.get("/api/locations/nearby", params={"lng": 120.211, "lat": 30.208})
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["total"] == 2
+    assert body["list"][0]["displayName"] == "杭州 · 滨江天街"
+    assert body["list"][1]["label"] == "杭州 · 湖滨银泰"
+    assert body["list"][0]["longitude"] == 120.211
+
+    missing = client.get("/api/locations/nearby", params={"lat": 30.208})
+    assert missing.status_code == 400
+    assert missing.json()["message"] == "请传入经纬度"
 
 
 def test_rate_limit() -> None:
@@ -556,11 +654,45 @@ def test_admin_system_config_flow() -> None:
     assert client.post("/api/admin/auth/logout", headers=logout_headers).json() == {"code": 200, "message": "退出成功", "data": {}}
     after_logout_admin = client.get("/api/admin/accounts", headers=logout_headers)
     assert after_logout_admin.status_code == 401
+    online_login = client.post(
+        "/api/auth/dev-token",
+        json={"phone": "18070000001", "code": "123456", "nickname": "在线用户", "clientType": "android"},
+    )
+    offline_login = client.post(
+        "/api/auth/dev-token",
+        json={"phone": "18070000002", "code": "123456", "nickname": "离线用户", "clientType": "ios"},
+    )
+    disabled_login = client.post(
+        "/api/auth/dev-token",
+        json={"phone": "18070000003", "code": "123456", "nickname": "禁用用户", "clientType": "android"},
+    )
+    assert online_login.status_code == 200
+    assert offline_login.status_code == 200
+    assert disabled_login.status_code == 200
+    with SessionLocal() as db:
+        offline_user = db.query(User).filter(User.user_id == "mp-18070000002").one()
+        offline_user.last_time = utc_now() - timedelta(minutes=10)
+        db.commit()
+    disable_user = client.put("/api/admin/users/mp-18070000003", json={"status": "banned"}, headers=headers)
+    assert disable_user.status_code == 200
+    disabled_profile = client.get(
+        "/api/user/profile",
+        headers={"Authorization": f"Bearer {disabled_login.json()['accessToken']}"},
+    )
+    assert disabled_profile.status_code == 401
+    disabled_relogin = client.post(
+        "/api/auth/dev-token",
+        json={"phone": "18070000003", "code": "123456", "nickname": "禁用用户", "clientType": "android"},
+    )
+    assert disabled_relogin.status_code == 403
+    assert disabled_relogin.json()["message"] == "账号已禁用，请联系管理员"
 
     menu_tree = client.get("/api/admin/menus", headers=headers)
     assert menu_tree.status_code == 200
-    assert menu_tree.json()["data"]["total"] >= 18
+    assert menu_tree.json()["data"]["total"] >= 19
     assert menu_tree.json()["data"]["list"][0]["menuId"] == "menu_dashboard"
+    system_node = next(item for item in menu_tree.json()["data"]["list"] if item["name"] == "SystemConfig")
+    assert system_node["children"][-1]["name"] == "UserOnline"
     menu_routes = client.get("/api/admin/menus/routes", headers=headers)
     assert menu_routes.status_code == 200
     assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
@@ -570,7 +702,25 @@ def test_admin_system_config_flow() -> None:
     assert any(item["name"] == "LogList" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "VersionPackageUpload" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "AccessRuleList" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "UserOnline" for item in menu_routes.json()["data"]["flatList"])
     assert next(item for item in menu_routes.json()["data"]["flatList"] if item["name"] == "LogList")["path"] == "log/list"
+
+    user_online_all = client.get("/api/admin/user-online", headers=headers)
+    assert user_online_all.status_code == 200
+    assert user_online_all.json()["data"]["status"] == "all"
+    assert user_online_all.json()["data"]["total"] == 2
+    assert user_online_all.json()["data"]["onlineCount"] == 1
+    assert user_online_all.json()["data"]["offlineCount"] == 1
+    assert {item["onlineStatus"] for item in user_online_all.json()["data"]["list"]} == {"online", "offline"}
+    assert "mp-18070000003" not in {item["userId"] for item in user_online_all.json()["data"]["list"]}
+    user_online_only = client.get("/api/admin/user-online", params={"status": "online"}, headers=headers)
+    assert user_online_only.status_code == 200
+    assert user_online_only.json()["data"]["total"] == 1
+    assert user_online_only.json()["data"]["list"][0]["userId"] == "mp-18070000001"
+    user_offline_only = client.get("/api/admin/user-online", params={"status": "offline"}, headers=headers)
+    assert user_offline_only.status_code == 200
+    assert user_offline_only.json()["data"]["total"] == 1
+    assert user_offline_only.json()["data"]["list"][0]["userId"] == "mp-18070000002"
 
     security_overview = client.get("/api/admin/security/overview", headers=headers)
     assert security_overview.status_code == 200

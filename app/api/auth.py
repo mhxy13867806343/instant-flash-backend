@@ -18,6 +18,7 @@ from app.api.user_identity import (
 )
 from app.api.utils import new_business_id
 from app.core.security import create_access_token, revoke_access_token
+from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
 from app.models.message import Message
@@ -79,6 +80,11 @@ def resolve_phone_login_user(matches: list[User], phone: str) -> User | None:
     return None
 
 
+def ensure_user_can_login(user: User) -> None:
+    if not user.is_active:
+        raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
+
+
 @router.post(
     "/logout",
     summary="用户端退出登录",
@@ -120,7 +126,7 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
     matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
     if phone:
         resolved_phone_user = resolve_phone_login_user(matched_users, phone)
-        if resolved_phone_user is None and not any([payload.user_id, payload.openid, payload.unionid]):
+        if resolved_phone_user is None and matched_users and not any([payload.user_id, payload.openid, payload.unionid]):
             raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已换绑，请使用新手机号登录")
         if resolved_phone_user is not None:
             matched_users = [resolved_phone_user]
@@ -139,6 +145,8 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
     if user is None:
         user = User(user_id=user_id)
         db.add(user)
+    else:
+        ensure_user_can_login(user)
 
     if phone and user.new_phone != phone:
         user.phone = phone
@@ -152,6 +160,7 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
         if value is not None:
             setattr(user, field, value)
 
+    user.last_time = utc_now()
     db.commit()
     db.refresh(user)
 
@@ -188,11 +197,14 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             raise fail(status.HTTP_400_BAD_REQUEST, "手机号/openid 命中多个用户，请检查登录绑定关系")
     else:
         user = matched_users[0] if matched_users else None
+    created_user = user is None
     if user is None:
         user = User(user_id=target_user_id or new_business_id("usr"), openid=openid)
         db.add(user)
     elif target_user_id and user.user_id != target_user_id and user.new_phone != phone:
         user = migrate_mobile_user_id(db, user, target_user_id)
+    if not created_user:
+        ensure_user_can_login(user)
 
     user.openid = user.openid or openid
     if phone and user.new_phone != phone:
@@ -205,6 +217,7 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
         if value is not None:
             setattr(user, field, value)
 
+    user.last_time = utc_now()
     db.commit()
     db.refresh(user)
 

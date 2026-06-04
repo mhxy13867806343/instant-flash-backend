@@ -13,8 +13,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.address import router as address_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.locations import router as locations_router
 from app.api.messages import router as messages_router
 from app.api.posts import router as posts_router
+from app.api.topics import tags_router, topics_router
 from app.api.users import router as users_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
@@ -26,6 +28,8 @@ openapi_tags = [
     {"name": "后台管理", "description": "后台管理系统接口：登录、看板、用户、内容、评论、协议"},
     {"name": "鉴权登录", "description": "用户端登录、微信登录、开发调试 Token"},
     {"name": "用户端内容", "description": "内容列表、详情、发布、编辑、点赞、评论、分享"},
+    {"name": "用户端话题", "description": "用户端推荐话题和话题搜索"},
+    {"name": "用户端位置", "description": "根据经纬度获取附近发布位置候选"},
     {"name": "用户端用户", "description": "当前登录用户资料和我的内容"},
     {"name": "用户端消息", "description": "当前登录用户消息中心"},
     {"name": "公共地区", "description": "PC 后台和用户端共用的省市区三级地区数据"},
@@ -51,6 +55,9 @@ app.include_router(address_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(posts_router)
+app.include_router(topics_router)
+app.include_router(tags_router)
+app.include_router(locations_router)
 app.include_router(users_router)
 app.include_router(messages_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
