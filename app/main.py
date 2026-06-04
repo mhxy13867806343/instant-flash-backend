@@ -10,9 +10,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.agreements import legacy_router as agreements_legacy_router
+from app.api.agreements import router as agreements_router
+from app.api.agreements import user_router as agreements_user_router
 from app.api.address import router as address_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
 from app.api.messages import router as messages_router
 from app.api.posts import router as posts_router
@@ -32,6 +36,8 @@ openapi_tags = [
     {"name": "用户端话题", "description": "用户端推荐话题和话题搜索"},
     {"name": "用户端位置", "description": "根据经纬度获取附近发布位置候选"},
     {"name": "用户端上传", "description": "用户端发布动态图片和视频上传"},
+    {"name": "用户端反馈", "description": "用户端动态反馈表单和反馈提交"},
+    {"name": "用户端协议", "description": "用户端隐私协议和用户协议"},
     {"name": "用户端用户", "description": "当前登录用户资料和我的内容"},
     {"name": "用户端消息", "description": "当前登录用户消息中心"},
     {"name": "公共地区", "description": "PC 后台和用户端共用的省市区三级地区数据"},
@@ -63,6 +69,10 @@ app.include_router(locations_router)
 app.include_router(uploads_router)
 app.include_router(users_router)
 app.include_router(messages_router)
+app.include_router(feedback_router)
+app.include_router(agreements_router)
+app.include_router(agreements_legacy_router)
+app.include_router(agreements_user_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 

@@ -151,6 +151,55 @@ class AdminAccessRule(TimestampMixin, Base):
     remark: Mapped[str | None] = mapped_column(Text)
 
 
+class AdminFeedbackFormConfig(TimestampMixin, Base):
+    __tablename__ = "admin_feedback_form_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    config_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(128), default="意见反馈", nullable=False)
+    menu_title: Mapped[str] = mapped_column(String(128), default="反馈管理", nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    submit_button_text: Mapped[str] = mapped_column(String(64), default="提交反馈", nullable=False)
+    success_message: Mapped[str] = mapped_column(String(128), default="反馈提交成功", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
+class AdminFeedbackField(TimestampMixin, Base):
+    __tablename__ = "admin_feedback_fields"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    field_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    form_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    field_key: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    type: Mapped[str] = mapped_column(String(32), default="input", nullable=False)
+    placeholder: Mapped[str | None] = mapped_column(String(256))
+    required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    options: Mapped[list[dict]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
+class FeedbackSubmission(TimestampMixin, Base):
+    __tablename__ = "feedback_submissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    feedback_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    phone: Mapped[str | None] = mapped_column(String(32), index=True)
+    title: Mapped[str | None] = mapped_column(String(128), index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    reply: Mapped[str | None] = mapped_column(Text)
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    remark: Mapped[str | None] = mapped_column(Text)
+
+
 class AdminOperationLog(TimestampMixin, Base):
     __tablename__ = "admin_operation_logs"
 

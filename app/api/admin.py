@@ -26,7 +26,7 @@ from app.models.message import Message
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.system_config import AdminAccessRule, AdminAccount, AdminAnnouncement, AdminDictionary, AdminMenu, AdminOperationLog, AdminPackage, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion
+from app.models.system_config import AdminAccessRule, AdminAccount, AdminAnnouncement, AdminDictionary, AdminFeedbackField, AdminFeedbackFormConfig, AdminMenu, AdminOperationLog, AdminPackage, AdminPermission, AdminRegion, AdminRole, AdminSecuritySetting, AdminSystemMessage, AdminTag, AdminVersion, FeedbackSubmission
 from app.models.user import User
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -40,7 +40,13 @@ DEFAULT_AGREEMENTS = {
 SINGLE_BANNER_ANNOUNCEMENT_ID = "SINGLE_BANNER"
 PACKAGE_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "packages"
 USER_ONLINE_WINDOW_SECONDS = 5 * 60
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule", "user_online"]
+DEFAULT_FEEDBACK_CONFIG_ID = "default"
+DEFAULT_FEEDBACK_FIELDS = [
+    {"field_id": "fb_field_phone", "field_key": "phone", "label": "手机号码", "type": "phone", "placeholder": "请填写手机号码", "required": True, "sort": 10},
+    {"field_id": "fb_field_title", "field_key": "title", "label": "反馈标题", "type": "input", "placeholder": "请输入标题或菜单名称", "required": True, "sort": 20},
+    {"field_id": "fb_field_content", "field_key": "content", "label": "反馈内容", "type": "textarea", "placeholder": "请填写具体反馈内容", "required": True, "sort": 30},
+]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule", "user_online", "feedback"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -62,10 +68,11 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_log", "permission_key": "log", "label": "日志管理", "description": "后台登录日志与操作日志", "sort": 160, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_access_rule", "permission_key": "access_rule", "label": "黑白名单", "description": "接口限流黑名单与白名单配置", "sort": 170, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user_online", "permission_key": "user_online", "label": "在线用户", "description": "查看用户端在线和离线用户", "sort": 180, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_feedback", "permission_key": "feedback", "label": "反馈管理", "description": "配置用户端反馈动态表单并处理反馈", "sort": 190, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule", "user_online"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule", "user_online", "feedback"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
     {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "like", "share", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
@@ -96,6 +103,7 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_log", "parent_id": "menu_system", "title": "日志管理", "path": "log/list", "name": "LogList", "component": "views/log/List", "icon": "Tickets", "type": "menu", "permission": "log", "sort": 80},
     {"menu_id": "menu_access_rule", "parent_id": "menu_system", "title": "黑白名单", "path": "security/access-rules", "name": "AccessRuleList", "component": "views/security/AccessRules", "icon": "Connection", "type": "menu", "permission": "access_rule", "sort": 90},
     {"menu_id": "menu_user_online", "parent_id": "menu_system", "title": "在线用户", "path": "user/online", "name": "UserOnline", "component": "views/user/Online", "icon": "Monitor", "type": "menu", "permission": "user_online", "sort": 100},
+    {"menu_id": "menu_feedback", "parent_id": "menu_system", "title": "反馈管理", "path": "feedback", "name": "FeedbackManage", "component": "views/feedback/List", "icon": "ChatDotRound", "type": "menu", "permission": "feedback", "sort": 110},
 ]
 ADMIN_ONLY_ROUTE_NAMES = {"AccountProfile", "AccountSettings", "LogList"}
 ADMIN_ROUTE_ROLES = {"admin", "superadmin"}
@@ -248,6 +256,34 @@ class AdminSystemMessagePayload(BaseModel):
     target: str = Field(default="all", max_length=32, title="发送范围", description="all 全部用户，admin 后台，user 用户端")
     status: str = Field(default="draft", pattern="^(draft|published|disabled)$", title="状态", description="draft 草稿，published 已发布，disabled 已停用")
     isPinned: bool = Field(default=False, title="是否置顶", description="是否在系统消息列表置顶展示")
+
+
+class AdminFeedbackConfigPayload(BaseModel):
+    title: str = Field(default="意见反馈", min_length=1, max_length=128, title="反馈页面标题", description="用户端反馈页面展示标题")
+    menuTitle: str = Field(default="反馈管理", min_length=1, max_length=128, title="菜单标题", description="后台反馈管理菜单或页面标题")
+    description: str | None = Field(default=None, title="页面说明", description="用户端反馈页面说明文案")
+    submitButtonText: str = Field(default="提交反馈", min_length=1, max_length=64, title="提交按钮文案", description="用户端动态表单提交按钮文字")
+    successMessage: str = Field(default="反馈提交成功", min_length=1, max_length=128, title="成功提示", description="用户提交成功后的提示文案")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 停用")
+    remark: str | None = Field(default=None, title="备注", description="后台备注")
+
+
+class AdminFeedbackFieldPayload(BaseModel):
+    fieldKey: str = Field(min_length=1, max_length=64, title="字段标识", description="动态表单字段 key，例如 phone/title/content")
+    label: str = Field(min_length=1, max_length=128, title="字段名称", description="表单展示名称")
+    type: str = Field(default="input", pattern="^(input|textarea|select|radio|checkbox|number|phone|email|autocomplete|input_number|cascader|switch|rate|color|date|datetime|time)$", title="字段类型", description="动态表单字段类型")
+    placeholder: str | None = Field(default=None, max_length=256, title="占位提示", description="输入框 placeholder")
+    required: bool = Field(default=False, title="是否必填", description="是否为必填项")
+    options: list[dict[str, Any]] = Field(default_factory=list, title="选项", description="select/radio/checkbox 使用的选项列表")
+    sort: int = Field(default=0, ge=0, title="排序值", description="数字越小越靠前")
+    status: str = Field(default="enabled", pattern="^(enabled|disabled)$", title="状态", description="enabled 启用，disabled 停用")
+    remark: str | None = Field(default=None, title="备注", description="字段备注")
+
+
+class AdminFeedbackStatusPayload(BaseModel):
+    status: str = Field(pattern="^(pending|processing|resolved|rejected)$", title="处理状态", description="pending 待处理，processing 处理中，resolved 已解决，rejected 已驳回")
+    reply: str | None = Field(default=None, title="处理回复", description="后台处理回复")
+    remark: str | None = Field(default=None, title="备注", description="后台备注")
 
 
 class AdminResponse(BaseModel):
@@ -871,6 +907,67 @@ def system_message_item(message: AdminSystemMessage) -> dict[str, Any]:
         "isPinned": message.is_pinned,
         "createdAt": format_time(message.create_time),
         "updatedAt": format_time(message.update_time),
+    }
+
+
+def feedback_field_item(field: AdminFeedbackField) -> dict[str, Any]:
+    return {
+        "fieldId": field.field_id,
+        "formId": field.form_id,
+        "fieldKey": field.field_key,
+        "label": field.label,
+        "type": field.type,
+        "placeholder": field.placeholder or "",
+        "required": field.required,
+        "options": field.options or [],
+        "sort": field.sort,
+        "status": field.status,
+        "isDefault": field.is_default,
+        "remark": field.remark or "",
+        "createdAt": format_time(field.create_time),
+        "updatedAt": format_time(field.update_time),
+    }
+
+
+def feedback_config_item(db: Session, config: AdminFeedbackFormConfig) -> dict[str, Any]:
+    fields = (
+        db.query(AdminFeedbackField)
+        .filter(AdminFeedbackField.form_id == config.config_id)
+        .order_by(AdminFeedbackField.sort.asc(), AdminFeedbackField.create_time.asc())
+        .all()
+    )
+    active_fields = [field for field in fields if field.status == "enabled"]
+    return {
+        "configId": config.config_id,
+        "title": config.title,
+        "menuTitle": config.menu_title,
+        "description": config.description or "",
+        "submitButtonText": config.submit_button_text,
+        "successMessage": config.success_message,
+        "status": config.status,
+        "remark": config.remark or "",
+        "fields": [feedback_field_item(field) for field in fields],
+        "activeFields": [feedback_field_item(field) for field in active_fields],
+        "createdAt": format_time(config.create_time),
+        "updatedAt": format_time(config.update_time),
+    }
+
+
+def feedback_submission_item(feedback: FeedbackSubmission) -> dict[str, Any]:
+    return {
+        "feedbackId": feedback.feedback_id,
+        "userId": feedback.user_id or "",
+        "phone": feedback.phone or "",
+        "title": feedback.title or "",
+        "content": feedback.content,
+        "payload": feedback.payload or {},
+        "status": feedback.status,
+        "reply": feedback.reply or "",
+        "ip": feedback.ip or "",
+        "userAgent": feedback.user_agent or "",
+        "remark": feedback.remark or "",
+        "createdAt": format_time(feedback.create_time),
+        "updatedAt": format_time(feedback.update_time),
     }
 
 
@@ -2585,6 +2682,50 @@ def seed_roles_if_empty(db: Session) -> None:
         db.commit()
 
 
+def seed_feedback_form_if_empty(db: Session) -> None:
+    config = db.query(AdminFeedbackFormConfig).filter(AdminFeedbackFormConfig.config_id == DEFAULT_FEEDBACK_CONFIG_ID).one_or_none()
+    if config is None:
+        config = AdminFeedbackFormConfig(
+            config_id=DEFAULT_FEEDBACK_CONFIG_ID,
+            title="意见反馈",
+            menu_title="反馈管理",
+            description="请填写手机号码、标题和反馈内容，我们会尽快处理。",
+            submit_button_text="提交反馈",
+            success_message="反馈提交成功",
+            status="enabled",
+            remark="系统默认反馈表单",
+        )
+        db.add(config)
+        db.commit()
+    existing_keys = {
+        row[0]
+        for row in db.query(AdminFeedbackField.field_key)
+        .filter(AdminFeedbackField.form_id == DEFAULT_FEEDBACK_CONFIG_ID)
+        .all()
+    }
+    new_fields = [
+        AdminFeedbackField(
+            field_id=item["field_id"],
+            form_id=DEFAULT_FEEDBACK_CONFIG_ID,
+            field_key=item["field_key"],
+            label=item["label"],
+            type=item["type"],
+            placeholder=item["placeholder"],
+            required=item["required"],
+            options=[],
+            sort=item["sort"],
+            status="enabled",
+            is_default=True,
+            remark="系统默认反馈字段",
+        )
+        for item in DEFAULT_FEEDBACK_FIELDS
+        if item["field_key"] not in existing_keys
+    ]
+    if new_fields:
+        db.add_all(new_fields)
+        db.commit()
+
+
 def active_permission_keys(db: Session) -> set[str]:
     seed_permissions_if_empty(db)
     return {row[0] for row in db.query(AdminPermission.permission_key).filter(AdminPermission.status == "enabled").all()}
@@ -3689,6 +3830,224 @@ def reset_admin_account_password(accountId: Annotated[str, Path(description="账
     account.last_time = utc_now()
     db.commit()
     return ok(None, "密码已重置为 123456")
+
+
+@router.get("/feedback/config", response_model=AdminResponse, summary="反馈表单配置", description="系统配置 - 反馈管理动态表单配置。")
+def get_admin_feedback_config(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    config = db.query(AdminFeedbackFormConfig).filter(AdminFeedbackFormConfig.config_id == DEFAULT_FEEDBACK_CONFIG_ID).one()
+    return ok(feedback_config_item(db, config))
+
+
+@router.put("/feedback/config", response_model=AdminResponse, summary="修改反馈表单配置", description="修改用户端反馈动态表单页面标题、说明和按钮文案。")
+def update_admin_feedback_config(
+    payload: AdminFeedbackConfigPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    config = db.query(AdminFeedbackFormConfig).filter(AdminFeedbackFormConfig.config_id == DEFAULT_FEEDBACK_CONFIG_ID).one()
+    config.title = payload.title
+    config.menu_title = payload.menuTitle
+    config.description = payload.description
+    config.submit_button_text = payload.submitButtonText
+    config.success_message = payload.successMessage
+    config.status = payload.status
+    config.remark = payload.remark
+    config.last_time = utc_now()
+    db.commit()
+    db.refresh(config)
+    return ok(feedback_config_item(db, config), "反馈表单配置已更新")
+
+
+@router.get("/feedback/fields", response_model=AdminResponse, summary="反馈字段列表", description="系统配置 - 反馈动态表单字段列表。")
+def list_admin_feedback_fields(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    status_filter: Annotated[str | None, Query(alias="status", description="状态：enabled/disabled")] = None,
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    query = db.query(AdminFeedbackField).filter(AdminFeedbackField.form_id == DEFAULT_FEEDBACK_CONFIG_ID)
+    if status_filter:
+        query = query.filter(AdminFeedbackField.status == status_filter)
+    fields = query.order_by(AdminFeedbackField.sort.asc(), AdminFeedbackField.create_time.asc()).all()
+    return ok({"list": [feedback_field_item(field) for field in fields], "total": len(fields)})
+
+
+@router.post("/feedback/fields", response_model=AdminResponse, summary="新增反馈字段", description="新增用户端反馈动态表单字段。")
+def create_admin_feedback_field(
+    payload: AdminFeedbackFieldPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    duplicate = (
+        db.query(AdminFeedbackField)
+        .filter(AdminFeedbackField.form_id == DEFAULT_FEEDBACK_CONFIG_ID, AdminFeedbackField.field_key == payload.fieldKey)
+        .one_or_none()
+    )
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "反馈字段标识已存在")
+    field = AdminFeedbackField(
+        field_id=new_business_id("fbf"),
+        form_id=DEFAULT_FEEDBACK_CONFIG_ID,
+        field_key=payload.fieldKey,
+        label=payload.label,
+        type=payload.type,
+        placeholder=payload.placeholder,
+        required=payload.required,
+        options=payload.options,
+        sort=payload.sort,
+        status=payload.status,
+        is_default=False,
+        remark=payload.remark,
+    )
+    db.add(field)
+    db.commit()
+    db.refresh(field)
+    return ok(feedback_field_item(field), "反馈字段创建成功")
+
+
+@router.get("/feedback/fields/{fieldId}", response_model=AdminResponse, summary="反馈字段详情", description="根据字段 ID 查询反馈动态字段。")
+def get_admin_feedback_field(
+    fieldId: Annotated[str, Path(description="反馈字段 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    field = db.query(AdminFeedbackField).filter(AdminFeedbackField.field_id == fieldId).one_or_none()
+    if field is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈字段未找到")
+    return ok(feedback_field_item(field))
+
+
+@router.put("/feedback/fields/{fieldId}", response_model=AdminResponse, summary="修改反馈字段", description="修改反馈动态表单字段。默认字段允许改名称、必填、排序和状态，但不允许改字段标识。")
+def update_admin_feedback_field(
+    fieldId: Annotated[str, Path(description="反馈字段 ID")],
+    payload: AdminFeedbackFieldPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    field = db.query(AdminFeedbackField).filter(AdminFeedbackField.field_id == fieldId).one_or_none()
+    if field is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈字段未找到")
+    if field.is_default and payload.fieldKey != field.field_key:
+        raise fail(status.HTTP_400_BAD_REQUEST, "系统默认字段标识不能修改")
+    duplicate = (
+        db.query(AdminFeedbackField)
+        .filter(
+            AdminFeedbackField.form_id == DEFAULT_FEEDBACK_CONFIG_ID,
+            AdminFeedbackField.field_key == payload.fieldKey,
+            AdminFeedbackField.field_id != fieldId,
+        )
+        .one_or_none()
+    )
+    if duplicate is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, "反馈字段标识已存在")
+    field.field_key = payload.fieldKey
+    field.label = payload.label
+    field.type = payload.type
+    field.placeholder = payload.placeholder
+    field.required = payload.required
+    field.options = payload.options
+    field.sort = payload.sort
+    field.status = payload.status
+    field.remark = payload.remark
+    field.last_time = utc_now()
+    db.commit()
+    db.refresh(field)
+    return ok(feedback_field_item(field), "反馈字段更新成功")
+
+
+@router.delete("/feedback/fields/{fieldId}", response_model=AdminResponse, summary="删除反馈字段", description="删除自定义反馈字段；默认字段不能删除。")
+def delete_admin_feedback_field(
+    fieldId: Annotated[str, Path(description="反馈字段 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    seed_feedback_form_if_empty(db)
+    field = db.query(AdminFeedbackField).filter(AdminFeedbackField.field_id == fieldId).one_or_none()
+    if field is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈字段未找到")
+    if field.is_default:
+        raise fail(status.HTTP_400_BAD_REQUEST, "系统默认反馈字段不能删除")
+    db.delete(field)
+    db.commit()
+    return ok(None, "反馈字段删除成功")
+
+
+@router.get("/feedback/submissions", response_model=AdminResponse, summary="反馈记录列表", description="系统配置 - 用户端反馈提交记录列表。")
+def list_admin_feedback_submissions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    keyword: Annotated[str | None, Query(description="搜索手机号、标题、内容、用户 ID")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", description="处理状态：pending/processing/resolved/rejected")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,
+) -> dict[str, Any]:
+    query = db.query(FeedbackSubmission)
+    if keyword:
+        like_keyword = f"%{keyword}%"
+        query = query.filter(
+            (FeedbackSubmission.phone.ilike(like_keyword))
+            | (FeedbackSubmission.title.ilike(like_keyword))
+            | (FeedbackSubmission.content.ilike(like_keyword))
+            | (FeedbackSubmission.user_id.ilike(like_keyword))
+        )
+    if status_filter:
+        query = query.filter(FeedbackSubmission.status == status_filter)
+    total = query.count()
+    submissions = query.order_by(FeedbackSubmission.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    return ok({"list": [feedback_submission_item(item) for item in submissions], "total": total})
+
+
+@router.get("/feedback/submissions/{feedbackId}", response_model=AdminResponse, summary="反馈记录详情", description="根据反馈 ID 查询用户提交详情。")
+def get_admin_feedback_submission(
+    feedbackId: Annotated[str, Path(description="反馈 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    feedback = db.query(FeedbackSubmission).filter(FeedbackSubmission.feedback_id == feedbackId).one_or_none()
+    if feedback is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈记录未找到")
+    return ok(feedback_submission_item(feedback))
+
+
+@router.put("/feedback/submissions/{feedbackId}/status", response_model=AdminResponse, summary="处理反馈记录", description="更新反馈记录处理状态和回复。")
+def update_admin_feedback_submission_status(
+    feedbackId: Annotated[str, Path(description="反馈 ID")],
+    payload: AdminFeedbackStatusPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    feedback = db.query(FeedbackSubmission).filter(FeedbackSubmission.feedback_id == feedbackId).one_or_none()
+    if feedback is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈记录未找到")
+    feedback.status = payload.status
+    feedback.reply = payload.reply
+    feedback.remark = payload.remark
+    feedback.last_time = utc_now()
+    db.commit()
+    db.refresh(feedback)
+    return ok(feedback_submission_item(feedback), "反馈记录已更新")
+
+
+@router.delete("/feedback/submissions/{feedbackId}", response_model=AdminResponse, summary="删除反馈记录", description="删除用户反馈记录。")
+def delete_admin_feedback_submission(
+    feedbackId: Annotated[str, Path(description="反馈 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    feedback = db.query(FeedbackSubmission).filter(FeedbackSubmission.feedback_id == feedbackId).one_or_none()
+    if feedback is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "反馈记录未找到")
+    db.delete(feedback)
+    db.commit()
+    return ok(None, "反馈记录删除成功")
 
 
 @router.get(

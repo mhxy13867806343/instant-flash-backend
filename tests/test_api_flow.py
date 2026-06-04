@@ -529,6 +529,19 @@ def test_admin_flow() -> None:
     )
     assert agreement.status_code == 200
     assert client.get("/api/admin/agreement/privacy", headers=admin_headers).json()["data"] == "<p>privacy</p>"
+    user_privacy = client.get("/api/agreements/privacy")
+    assert user_privacy.status_code == 200
+    assert user_privacy.json()["data"]["content"] == "<p>privacy</p>"
+    assert user_privacy.json()["data"]["title"] == "隐私协议"
+    user_agreement = client.get("/api/agreements/user")
+    assert user_agreement.status_code == 200
+    assert user_agreement.json()["data"]["title"] == "用户协议"
+    legacy_privacy = client.get("/api/agreement/privacy")
+    assert legacy_privacy.status_code == 200
+    assert legacy_privacy.json()["data"]["agreementType"] == "privacy"
+    user_privacy_alias = client.get("/api/user/agreements/privacy")
+    assert user_privacy_alias.status_code == 200
+    assert user_privacy_alias.json()["data"]["agreementType"] == "privacy"
 
     filtered = client.get("/api/admin/posts", params={"userId": "usr_admin_target"}, headers=admin_headers)
     assert filtered.status_code == 200
@@ -784,10 +797,11 @@ def test_admin_system_config_flow() -> None:
 
     menu_tree = client.get("/api/admin/menus", headers=headers)
     assert menu_tree.status_code == 200
-    assert menu_tree.json()["data"]["total"] >= 19
+    assert menu_tree.json()["data"]["total"] >= 20
     assert menu_tree.json()["data"]["list"][0]["menuId"] == "menu_dashboard"
     system_node = next(item for item in menu_tree.json()["data"]["list"] if item["name"] == "SystemConfig")
-    assert system_node["children"][-1]["name"] == "UserOnline"
+    assert any(item["name"] == "UserOnline" for item in system_node["children"])
+    assert system_node["children"][-1]["name"] == "FeedbackManage"
     menu_routes = client.get("/api/admin/menus/routes", headers=headers)
     assert menu_routes.status_code == 200
     assert any(item["name"] == "Dashboard" for item in menu_routes.json()["data"]["flatList"])
@@ -798,7 +812,54 @@ def test_admin_system_config_flow() -> None:
     assert any(item["name"] == "VersionPackageUpload" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "AccessRuleList" for item in menu_routes.json()["data"]["flatList"])
     assert any(item["name"] == "UserOnline" for item in menu_routes.json()["data"]["flatList"])
+    assert any(item["name"] == "FeedbackManage" for item in menu_routes.json()["data"]["flatList"])
     assert next(item for item in menu_routes.json()["data"]["flatList"] if item["name"] == "LogList")["path"] == "log/list"
+
+    feedback_config = client.get("/api/admin/feedback/config", headers=headers)
+    assert feedback_config.status_code == 200
+    assert [item["fieldKey"] for item in feedback_config.json()["data"]["activeFields"]][:3] == ["phone", "title", "content"]
+    assert client.delete("/api/admin/feedback/fields/fb_field_phone", headers=headers).status_code == 400
+    custom_field = client.post(
+        "/api/admin/feedback/fields",
+        json={
+            "fieldKey": "menu",
+            "label": "反馈菜单",
+            "type": "input",
+            "placeholder": "请输入菜单名称",
+            "required": False,
+            "sort": 15,
+            "status": "enabled",
+        },
+        headers=headers,
+    )
+    assert custom_field.status_code == 200
+    assert custom_field.json()["data"]["fieldKey"] == "menu"
+    user_form = client.get("/api/feedback/form")
+    assert user_form.status_code == 200
+    assert "menu" in [item["fieldKey"] for item in user_form.json()["data"]["fields"]]
+    feedback_submit = client.post(
+        "/api/feedback",
+        json={
+            "phone": "18070000001",
+            "title": "菜单问题",
+            "content": "这个菜单需要优化",
+            "data": {"menu": "系统设置"},
+        },
+        headers={"Authorization": f"Bearer {online_login.json()['accessToken']}"},
+    )
+    assert feedback_submit.status_code == 200
+    feedback_id = feedback_submit.json()["data"]["feedbackId"]
+    feedback_list = client.get("/api/admin/feedback/submissions", headers=headers)
+    assert feedback_list.status_code == 200
+    assert feedback_list.json()["data"]["list"][0]["feedbackId"] == feedback_id
+    assert feedback_list.json()["data"]["list"][0]["payload"]["menu"] == "系统设置"
+    feedback_status = client.put(
+        f"/api/admin/feedback/submissions/{feedback_id}/status",
+        json={"status": "processing", "reply": "已收到", "remark": "测试处理"},
+        headers=headers,
+    )
+    assert feedback_status.status_code == 200
+    assert feedback_status.json()["data"]["status"] == "processing"
 
     user_online_all = client.get("/api/admin/user-online", headers=headers)
     assert user_online_all.status_code == 200
