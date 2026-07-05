@@ -19,6 +19,7 @@ from app.models.mall import (
     MallChatMessage,
     MallProductBargain,
 )
+from app.models.chat import GlobalChatSession, GlobalChatMessage
 from app.models.user import User
 from app.api.admin import get_admin_subject, fail as admin_fail, ok as admin_ok
 from app.schemas.mall_interactions import (
@@ -34,6 +35,11 @@ from app.schemas.mall_interactions import (
     ChatSessionOut,
     ChatMessageCreate,
     ChatMessageOut,
+    GlobalChatSessionInit,
+    GlobalChatSessionOut,
+    GlobalChatSessionListResponse,
+    GlobalChatMessageCreate,
+    GlobalChatMessageOut,
 )
 
 router = APIRouter(tags=["商城增强交互（物流/客服/会话还价）"])
@@ -475,3 +481,225 @@ def admin_list_chat_sessions(
     
     sessions = q.order_by(MallChatSession.update_time.desc()).all()
     return [ChatSessionOut.model_validate(s) for s in sessions]
+
+
+# ---------------------------------------------------------------------------
+# 5. 全局聊天与私聊 API
+# ---------------------------------------------------------------------------
+
+def _global_message_out(m: GlobalChatMessage) -> GlobalChatMessageOut:
+    return GlobalChatMessageOut(
+        messageId=m.message_id,
+        sessionId=m.session_id,
+        senderId=m.sender_id,
+        receiverId=m.receiver_id,
+        content=m.content,
+        msgType=m.msg_type,
+        productId=m.product_id,
+        bargainId=m.bargain_id,
+        isRead=m.is_read,
+        createTime=m.create_time,
+    )
+
+
+@router.post(
+    "/api/chat/sessions/init",
+    response_model=GlobalChatSessionOut,
+    summary="初始化全局聊天会话",
+    description="与另一个用户或客服发起聊天。会话唯一存在，支持关联带入商品ID。",
+)
+def init_global_chat_session(
+    payload: GlobalChatSessionInit,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    target_id = payload.targetId
+    if target_id == current_user.user_id:
+        raise fail(status.HTTP_400_BAD_REQUEST, "不能与自己建立聊天会话")
+
+    # 查寻是否该会话已存在（A-B 或 B-A）
+    session = db.query(GlobalChatSession).filter(
+        (
+            (GlobalChatSession.user_one_id == current_user.user_id)
+            & (GlobalChatSession.user_two_id == target_id)
+        )
+        | (
+            (GlobalChatSession.user_one_id == target_id)
+            & (GlobalChatSession.user_two_id == current_user.user_id)
+        )
+    ).first()
+
+    if not session:
+        session = GlobalChatSession(
+            session_id=new_business_id("gses"),
+            user_one_id=current_user.user_id,
+            user_two_id=target_id,
+            is_active=True,
+        )
+        db.add(session)
+        db.flush()
+    else:
+        session.is_active = True
+        session.last_time = utc_now()
+
+    db.commit()
+    db.refresh(session)
+
+    # 封装基础数据
+    ret = GlobalChatSessionOut.model_validate(session).model_dump()
+    
+    # 填充目标头像与昵称
+    target_user = db.query(User).filter(User.user_id == target_id).first()
+    if target_user:
+        ret["targetNickname"] = target_user.nickname or "即闪用户"
+        ret["targetAvatar"] = target_user.avatar or ""
+    else:
+        target_cs = db.query(MallCustomerService).filter(MallCustomerService.cs_id == target_id).first()
+        if target_cs:
+            ret["targetNickname"] = target_cs.name
+            ret["targetAvatar"] = target_cs.avatar or ""
+        else:
+            ret["targetNickname"] = "客服代表"
+
+    return ok(ret, "会话建立成功")
+
+
+@router.get(
+    "/api/chat/sessions",
+    response_model=GlobalChatSessionListResponse,
+    summary="我的全局会话列表",
+    description="获取当前登录用户的所有活跃私聊/客服会话列表，包括未读消息数、最新消息摘要。",
+)
+def list_global_chat_sessions(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> GlobalChatSessionListResponse:
+    # 查询参与的会话
+    sessions = db.query(GlobalChatSession).filter(
+        (GlobalChatSession.user_one_id == current_user.user_id)
+        | (GlobalChatSession.user_two_id == current_user.user_id)
+    ).filter(GlobalChatSession.is_active.is_(True)).order_by(GlobalChatSession.update_time.desc()).all()
+
+    items = []
+    for s in sessions:
+        out = GlobalChatSessionOut.model_validate(s)
+        # 找到对方 ID
+        target_id = s.user_two_id if s.user_one_id == current_user.user_id else s.user_one_id
+        
+        # 对方资料
+        target_user = db.query(User).filter(User.user_id == target_id).first()
+        if target_user:
+            out.targetNickname = target_user.nickname or "即闪用户"
+            out.targetAvatar = target_user.avatar or ""
+        else:
+            target_cs = db.query(MallCustomerService).filter(MallCustomerService.cs_id == target_id).first()
+            if target_cs:
+                out.targetNickname = target_cs.name
+                out.targetAvatar = target_cs.avatar or ""
+            else:
+                out.targetNickname = "客服代表"
+
+        # 未读消息统计
+        unread_cnt = db.query(func.count(GlobalChatMessage.id)).filter(
+            GlobalChatMessage.session_id == s.session_id,
+            GlobalChatMessage.receiver_id == current_user.user_id,
+            GlobalChatMessage.is_read.is_(False),
+        ).scalar() or 0
+        out.unreadCount = int(unread_cnt)
+        items.append(out)
+
+    return GlobalChatSessionListResponse(items=items, total=len(items))
+
+
+@router.get(
+    "/api/chat/sessions/{session_id}/messages",
+    response_model=list[GlobalChatMessageOut],
+    summary="获取全局会话消息历史",
+)
+def get_global_chat_messages(
+    session_id: Annotated[str, Path(description="全局会话 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[GlobalChatMessageOut]:
+    session = db.query(GlobalChatSession).filter(GlobalChatSession.session_id == session_id).first()
+    if session is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "会话未找到")
+
+    # 鉴权
+    if session.user_one_id != current_user.user_id and session.user_two_id != current_user.user_id:
+        raise fail(status.HTTP_403_FORBIDDEN, "无权查看此会话")
+
+    msgs = db.query(GlobalChatMessage).filter(
+        GlobalChatMessage.session_id == session_id
+    ).order_by(GlobalChatMessage.create_time.asc()).limit(limit).all()
+
+    return [_global_message_out(m) for m in msgs]
+
+
+@router.post(
+    "/api/chat/messages",
+    response_model=GlobalChatMessageOut,
+    summary="发送全局私聊/客服消息",
+    description="发送单条私聊/客服消息，支持普通文字、晒图、还价卡片及关联商品分享。",
+)
+def send_global_chat_message(
+    payload: GlobalChatMessageCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> GlobalChatMessageOut:
+    session = db.query(GlobalChatSession).filter(
+        GlobalChatSession.session_id == payload.sessionId
+    ).first()
+    if session is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "会话未找到")
+
+    # 鉴权并发起者/接收者定位
+    if session.user_one_id == current_user.user_id:
+        receiver_id = session.user_two_id
+    elif session.user_two_id == current_user.user_id:
+        receiver_id = session.user_one_id
+    else:
+        raise fail(status.HTTP_403_FORBIDDEN, "无权在当前会话发消息")
+
+    msg = GlobalChatMessage(
+        message_id=new_business_id("gmsg"),
+        session_id=payload.sessionId,
+        sender_id=current_user.user_id,
+        receiver_id=receiver_id,
+        content=payload.content,
+        msg_type=payload.msgType,
+        product_id=payload.productId,
+        bargain_id=payload.bargainId,
+        is_read=False,
+    )
+    db.add(msg)
+
+    # 更新会话最后消息预览和活跃更新时间
+    now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    session.last_message = payload.content
+    session.last_message_time = now_str
+    session.last_time = utc_now()
+    
+    db.commit()
+    db.refresh(msg)
+    return _global_message_out(msg)
+
+
+@router.put(
+    "/api/chat/sessions/{session_id}/read",
+    summary="标记会话消息为已读",
+)
+def read_global_chat_messages(
+    session_id: Annotated[str, Path(description="全局会话 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    db.query(GlobalChatMessage).filter(
+        GlobalChatMessage.session_id == session_id,
+        GlobalChatMessage.receiver_id == current_user.user_id,
+        GlobalChatMessage.is_read.is_(False),
+    ).update({GlobalChatMessage.is_read: True, GlobalChatMessage.last_time: utc_now()}, synchronize_session=False)
+    db.commit()
+    return ok(message="会话消息已全部标记为已读")
+

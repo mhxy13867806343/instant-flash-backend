@@ -121,3 +121,60 @@ class ChatMessageOut(BaseModel):
     msgType: str
     bargainId: str | None = None
     createTime: datetime
+
+
+# ---------------------------------------------------------------------------
+# 全局私聊会话与聊天消息
+# ---------------------------------------------------------------------------
+
+class GlobalChatSessionInit(BaseModel):
+    targetId: str = Field(..., description="目标对话方 ID (用户ID或客服 cs_id)")
+    productId: str | None = Field(default=None, description="可关联并带入对话框的商品 ID")
+
+
+class GlobalChatSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    sessionId: str
+    userOneId: str
+    userTwoId: str
+    lastMessage: str | None = None
+    lastMessageTime: str | None = None
+    isActive: bool
+    
+    # 额外补充，辅助前端展示头像/昵称和未读数
+    targetNickname: str | None = Field(default=None, title="目标用户昵称")
+    targetAvatar: str | None = Field(default=None, title="目标用户头像")
+    unreadCount: int = Field(default=0, title="未读消息数")
+    
+    createTime: datetime
+    updateTime: datetime
+
+
+class GlobalChatSessionListResponse(BaseModel):
+    items: list[GlobalChatSessionOut]
+    total: int
+
+
+class GlobalChatMessageCreate(BaseModel):
+    sessionId: str = Field(..., description="会话 ID")
+    content: str = Field(..., min_length=1, description="消息正文内容")
+    msgType: str = Field(default="text", pattern="^(text|image|product|bargain)$")
+    productId: str | None = Field(default=None, description="附带的商品 ID")
+    bargainId: str | None = Field(default=None, description="附带的还价记录 ID")
+
+
+class GlobalChatMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    messageId: str
+    sessionId: str
+    senderId: str
+    receiverId: str
+    content: str
+    msgType: str
+    productId: str | None = None
+    bargainId: str | None = None
+    isRead: bool
+    createTime: datetime
+

@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.user_config import UserCustomConfig
 from app.models.mall import MallSetting, MallProduct, MallOrder, MallPaymentMethod, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare, MallOrderLogisticsStep, MallCustomerService, MallChatSession, MallChatMessage, MallProductBargain
 from app.models.wallet import UserWallet, WalletRecord
+from app.models.chat import GlobalChatSession, GlobalChatMessage
 
 __all__ = [
     "AdminAgreement",
@@ -54,4 +55,6 @@ __all__ = [
     "MallChatSession",
     "MallChatMessage",
     "MallProductBargain",
+    "GlobalChatSession",
+    "GlobalChatMessage",
 ]
