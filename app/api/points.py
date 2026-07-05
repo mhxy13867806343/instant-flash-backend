@@ -80,12 +80,12 @@ def points_overview(
 @router.get(
     "/records",
     summary="我的积分明细",
-    description="分页查询当前登录用户的积分明细。支持按积分类型 type(0-8) 和方向 direction(earn 获得/consume 消耗) 筛选。",
+    description="分页查询当前登录用户的积分明细。支持按积分类型 type(0-9) 和方向 direction(earn 获得/consume 消耗) 筛选。",
 )
 def points_records(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
-    type: Annotated[int | None, Query(ge=0, le=8, description="积分类型：0登录 1邀请 2被邀请 3新注册 4活动 5分享 6系统补偿 7签到 8其他")] = None,
+    type: Annotated[int | None, Query(ge=0, le=9, description="积分类型：0登录 1邀请 2被邀请 3新注册 4活动 5分享 6系统补偿 7签到 8其他 9商城兑换")] = None,
     direction: Annotated[str | None, Query(pattern="^(earn|consume)$", description="方向：earn 获得，consume 消耗")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     limit: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 10,

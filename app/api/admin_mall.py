@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, status
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.api.admin import fail, format_time, get_admin_subject, ok
 from app.api.utils import new_business_id
+from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
@@ -90,6 +91,13 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         cancelledAt=o.cancelled_at,
         cancelReason=o.cancel_reason,
         remark=o.remark,
+        expireAt=o.expire_at,
+        userRemark=o.user_remark,
+        receiverName=o.receiver_name,
+        receiverPhone=o.receiver_phone,
+        receiverAddress=o.receiver_address,
+        expressCompany=o.express_company,
+        expressNo=o.express_no,
         createTime=o.create_time,
         updateTime=o.update_time,
     )
@@ -380,11 +388,39 @@ def update_order_status(
     if target == "cancelled" and o.status in ("completed",):
         raise fail(status.HTTP_400_BAD_REQUEST, "已完成订单不能取消")
 
+    # 取消时的退款逻辑
+    if target == "cancelled":
+        # 已支付/已发货订单取消：退还积分 + 恢复库存
+        if o.status in ("paid", "shipped") and o.points_used > 0:
+            user = db.query(User).filter(User.user_id == o.user_id).first()
+            if user is not None:
+                award_points(
+                    db,
+                    user,
+                    POINT_TYPE_MALL,
+                    o.points_used,  # 正数 = 退还
+                    title=f"订单取消退还积分",
+                    remark=f"订单号：{o.order_id}，{payload.cancel_reason or '平台取消'}",
+                    source_id=o.order_id,
+                )
+        # 已支付/已发货订单取消：恢复库存
+        if o.status in ("paid", "shipped"):
+            p = db.query(MallProduct).filter(MallProduct.product_id == o.product_id).first()
+            if p is not None:
+                p.stock = min(999, p.stock + o.quantity)
+                p.sold_count = max(0, (p.sold_count or 0) - o.quantity)
+                if p.status == "sold_out" and p.stock > 0:
+                    p.status = "on_sale"
+
     o.status = target
     if target == "paid":
         o.paid_at = now_str
     elif target == "shipped":
         o.shipped_at = now_str
+        if payload.express_company:
+            o.express_company = payload.express_company
+        if payload.express_no:
+            o.express_no = payload.express_no
     elif target == "completed":
         o.completed_at = now_str
     elif target == "cancelled":
@@ -493,3 +529,71 @@ def delete_payment_method(
     db.delete(m)
     db.commit()
     return ok(message="支付方式已删除")
+
+
+# ---------------------------------------------------------------------------
+# 商城统计看板
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/stats",
+    summary="商城数据统计",
+    description=(
+        "PC 端商城看板数据。包含各状态订单数量、总销售额（分）、"
+        "积分消耗总量、今日新增订单数、商品总数及上架数量。"
+    ),
+)
+def mall_stats(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    # 各状态订单数
+    status_counts: dict[str, int] = {}
+    for s in ["pending_pay", "paid", "shipped", "completed", "cancelled"]:
+        cnt = db.query(func.count(MallOrder.id)).filter(MallOrder.status == s).scalar() or 0
+        status_counts[s] = int(cnt)
+    total_orders = sum(status_counts.values())
+
+    # 有效订单（已支付/已发货/已完成）的销售额和积分消耗
+    valid_statuses = ["paid", "shipped", "completed"]
+    revenue: int = int(
+        db.query(func.coalesce(func.sum(MallOrder.total_price), 0))
+        .filter(MallOrder.status.in_(valid_statuses))
+        .scalar() or 0
+    )
+    points_consumed: int = int(
+        db.query(func.coalesce(func.sum(MallOrder.points_used), 0))
+        .filter(MallOrder.status.in_(valid_statuses))
+        .scalar() or 0
+    )
+
+    # 今日新增订单（CST 时区）
+    day_start, day_end = cst_day_bounds()
+    today_orders: int = int(
+        db.query(func.count(MallOrder.id))
+        .filter(MallOrder.create_time >= day_start, MallOrder.create_time < day_end)
+        .scalar() or 0
+    )
+
+    # 商品统计
+    total_products: int = int(db.query(func.count(MallProduct.id)).scalar() or 0)
+    on_sale_products: int = int(
+        db.query(func.count(MallProduct.id))
+        .filter(MallProduct.status == "on_sale")
+        .scalar() or 0
+    )
+
+    return ok(
+        {
+            "orderStatusCounts": {
+                **{ORDER_STATUS_LABELS[k]: v for k, v in status_counts.items()},
+                "rawKeys": status_counts,
+            },
+            "totalOrders": total_orders,
+            "todayNewOrders": today_orders,
+            "totalRevenue": revenue,          # 单位：分，前端展示时 ÷100 换算成元
+            "totalPointsConsumed": points_consumed,
+            "totalProducts": total_products,
+            "onSaleProducts": on_sale_products,
+        }
+    )

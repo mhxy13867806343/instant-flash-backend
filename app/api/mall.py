@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
-from app.core.points import POINT_TYPE_OTHER, award_points
+from app.core.points import POINT_TYPE_MALL, award_points
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
@@ -25,6 +26,8 @@ from app.schemas.mall import (
 router = APIRouter(prefix="/api/mall", tags=["用户端商城"])
 
 MALL_SETTING_ID = 1
+# 待支付订单超时时间（分钟）
+ORDER_EXPIRE_MINUTES = 30
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +48,6 @@ def fail(status_code: int, message: str) -> HTTPException:
 def _get_setting(db: Session) -> MallSetting:
     setting = db.get(MallSetting, MALL_SETTING_ID)
     if setting is None:
-        # 设置不存在时用默认值（积分开关关闭）
         return MallSetting(id=MALL_SETTING_ID, points_switch=False)
     return setting
 
@@ -94,9 +96,35 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         cancelledAt=o.cancelled_at,
         cancelReason=o.cancel_reason,
         remark=o.remark,
+        expireAt=o.expire_at,
+        userRemark=o.user_remark,
+        receiverName=o.receiver_name,
+        receiverPhone=o.receiver_phone,
+        receiverAddress=o.receiver_address,
+        expressCompany=o.express_company,
+        expressNo=o.express_no,
         createTime=o.create_time,
         updateTime=o.update_time,
     )
+
+
+def _auto_cancel_if_expired(db: Session, order: MallOrder) -> MallOrder:
+    """
+    对 pending_pay 状态的订单检查是否超时，超时则自动取消。
+    注意：此函数会在需要时 commit，调用方无需再 commit。
+    """
+    if (
+        order.status == "pending_pay"
+        and order.expire_at is not None
+        and order.expire_at < utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ):
+        now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        order.status = "cancelled"
+        order.cancelled_at = now_str
+        order.cancel_reason = "订单超时自动取消"
+        db.commit()
+        db.refresh(order)
+    return order
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +209,6 @@ def mobile_list_payment_methods(
     setting = _get_setting(db)
     q = db.query(MallPaymentMethod).filter(MallPaymentMethod.status == "enabled")
     if setting.points_switch:
-        # 积分开关开启，只展示 points 类型
         q = q.filter(MallPaymentMethod.type == "points")
     methods = q.order_by(MallPaymentMethod.sort.asc()).all()
     return ok(
@@ -208,7 +235,7 @@ def mobile_list_payment_methods(
 
 
 # ---------------------------------------------------------------------------
-# 下单
+# 下单（#9 行锁防超卖）
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -219,7 +246,9 @@ def mobile_list_payment_methods(
         "移动端用户下单。"
         "积分开关开启时 payType 必须为 points；"
         "使用积分支付时会校验用户积分是否足够；"
-        "下单成功后订单状态为 pending_pay（待支付），需调用 /orders/{orderId}/pay 完成支付。"
+        "库存使用数据库行锁（SELECT FOR UPDATE）防止超卖；"
+        "下单成功后订单状态为 pending_pay（待支付），30分钟内未支付自动取消。"
+        "需调用 /orders/{orderId}/pay 完成支付。"
     ),
 )
 def mobile_create_order(
@@ -229,15 +258,20 @@ def mobile_create_order(
 ) -> dict[str, Any]:
     setting = _get_setting(db)
 
-    # 查商品
-    p = db.query(MallProduct).filter(
-        MallProduct.product_id == payload.product_id,
-        MallProduct.status == "on_sale",
-    ).first()
+    # ✅ #9 行锁：防止并发超卖，锁定商品行直到事务结束
+    p = (
+        db.query(MallProduct)
+        .filter(
+            MallProduct.product_id == payload.product_id,
+            MallProduct.status == "on_sale",
+        )
+        .with_for_update()
+        .first()
+    )
     if p is None:
         raise fail(status.HTTP_404_NOT_FOUND, "商品不存在或已下架")
 
-    # 库存校验
+    # 库存校验（行锁已获取，此时库存值可信）
     if p.stock < payload.quantity:
         raise fail(status.HTTP_400_BAD_REQUEST, f"库存不足，当前库存 {p.stock} 件")
 
@@ -268,10 +302,17 @@ def mobile_create_order(
             raise fail(status.HTTP_400_BAD_REQUEST, "该商品不支持积分兑换")
         points_needed = p.points_cost * payload.quantity
         if (current_user.points or 0) < points_needed:
-            raise fail(status.HTTP_400_BAD_REQUEST, f"积分不足，需要 {points_needed} 积分，当前余额 {current_user.points or 0}")
+            raise fail(
+                status.HTTP_400_BAD_REQUEST,
+                f"积分不足，需要 {points_needed} 积分，当前余额 {current_user.points or 0}",
+            )
         unit_price = 0  # 纯积分支付，价格为 0
 
     total = unit_price * payload.quantity
+
+    # 计算超时时间（UTC）
+    expire_str = (utc_now() + timedelta(minutes=ORDER_EXPIRE_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     order = MallOrder(
         order_id=new_business_id("ord"),
         user_id=current_user.user_id,
@@ -285,6 +326,11 @@ def mobile_create_order(
         pay_type=pay_type,
         pay_type_value=method.type_value,
         status="pending_pay",
+        expire_at=expire_str,
+        user_remark=payload.user_remark,
+        receiver_name=payload.receiver_name,
+        receiver_phone=payload.receiver_phone,
+        receiver_address=payload.receiver_address,
     )
     db.add(order)
     db.commit()
@@ -293,7 +339,7 @@ def mobile_create_order(
 
 
 # ---------------------------------------------------------------------------
-# 支付
+# 支付（#10 幂等 + 行锁）
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -301,8 +347,10 @@ def mobile_create_order(
     summary="发起支付",
     description=(
         "移动端对待支付订单发起支付。"
-        "当前为模拟支付：积分支付会立即扣除用户积分并扣减库存，更新订单为已支付；"
-        "其他支付方式（微信/支付宝等）同样直接标记为已支付（模拟，未接入真实 SDK）。"
+        "使用数据库行锁（SELECT FOR UPDATE）保证支付幂等，防止重复扣积分。"
+        "超时订单会先自动取消再返回错误。"
+        "积分支付会立即扣除用户积分并扣减库存；"
+        "其他支付方式（微信/支付宝等）直接标记为已支付（模拟，未接入真实 SDK）。"
     ),
 )
 def mobile_pay_order(
@@ -310,30 +358,61 @@ def mobile_pay_order(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> dict[str, Any]:
-    o = db.query(MallOrder).filter(
-        MallOrder.order_id == order_id,
-        MallOrder.user_id == current_user.user_id,
-    ).first()
+    # ✅ #10 行锁：并发支付只有一个能通过，另一个看到状态非 pending_pay 后直接返回幂等结果
+    o = (
+        db.query(MallOrder)
+        .filter(
+            MallOrder.order_id == order_id,
+            MallOrder.user_id == current_user.user_id,
+        )
+        .with_for_update()
+        .first()
+    )
     if o is None:
         raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
+
+    # ✅ 幂等：已支付则直接返回成功
+    if o.status == "paid":
+        return ok(_order_out(o).model_dump(), "支付成功（重复请求）")
+
+    # ✅ #5 超时自动取消
+    if o.status == "pending_pay" and o.expire_at and o.expire_at < utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"):
+        now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        o.status = "cancelled"
+        o.cancelled_at = now_str
+        o.cancel_reason = "订单超时自动取消"
+        db.commit()
+        raise fail(status.HTTP_400_BAD_REQUEST, "订单已超时，已自动取消")
+
     if o.status != "pending_pay":
-        raise fail(status.HTTP_400_BAD_REQUEST, f"订单当前状态为「{ORDER_STATUS_LABELS.get(o.status, o.status)}」，无法支付")
+        raise fail(
+            status.HTTP_400_BAD_REQUEST,
+            f"订单当前状态为「{ORDER_STATUS_LABELS.get(o.status, o.status)}」，无法支付",
+        )
 
     # 积分扣除
     if o.points_used > 0:
         if (current_user.points or 0) < o.points_used:
-            raise fail(status.HTTP_400_BAD_REQUEST, f"积分不足，需要 {o.points_used} 积分，当前余额 {current_user.points or 0}")
+            raise fail(
+                status.HTTP_400_BAD_REQUEST,
+                f"积分不足，需要 {o.points_used} 积分，当前余额 {current_user.points or 0}",
+            )
         award_points(
             db,
             current_user,
-            POINT_TYPE_OTHER,
+            POINT_TYPE_MALL,  # ✅ #2 专用商城积分类型，明细显示"商城兑换"
             -o.points_used,
             title=f"兑换商品：{o.product_title}",
             source_id=o.order_id,
         )
 
-    # 扣减库存 & 增加销量
-    p = db.query(MallProduct).filter(MallProduct.product_id == o.product_id).first()
+    # 扣减库存 & 增加销量（行锁下操作，安全）
+    p = (
+        db.query(MallProduct)
+        .filter(MallProduct.product_id == o.product_id)
+        .with_for_update()
+        .first()
+    )
     if p is not None:
         p.stock = max(0, p.stock - o.quantity)
         p.sold_count = (p.sold_count or 0) + o.quantity
@@ -361,6 +440,7 @@ def mobile_pay_order(
     description=(
         "移动端查询当前用户的订单列表。"
         "status 筛选：all(全部) / pending_pay(待支付) / paid(已支付) / shipped(已发货) / completed(已完成) / cancelled(已取消)。"
+        "pending_pay 中超时的订单会自动标记为 cancelled 再返回。"
     ),
 )
 def mobile_list_orders(
@@ -380,6 +460,18 @@ def mobile_list_orders(
         .limit(limit)
         .all()
     )
+    # ✅ #5 批量检查超时，自动取消过期待支付订单
+    now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    need_commit = False
+    for o in orders:
+        if o.status == "pending_pay" and o.expire_at and o.expire_at < now_str:
+            o.status = "cancelled"
+            o.cancelled_at = now_str
+            o.cancel_reason = "订单超时自动取消"
+            need_commit = True
+    if need_commit:
+        db.commit()
+
     return MallOrderListResponse(items=[_order_out(o) for o in orders], total=total)
 
 
@@ -387,7 +479,7 @@ def mobile_list_orders(
     "/orders/{order_id}",
     response_model=MallOrderOut,
     summary="订单详情",
-    description="移动端查询当前用户的单条订单详情。",
+    description="移动端查询当前用户的单条订单详情，pending_pay 超时订单自动取消后返回。",
 )
 def mobile_get_order(
     order_id: Annotated[str, Path(description="订单业务 ID")],
@@ -400,6 +492,8 @@ def mobile_get_order(
     ).first()
     if o is None:
         raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
+    # ✅ #5 超时自动取消
+    o = _auto_cancel_if_expired(db, o)
     return _order_out(o)
 
 
@@ -416,11 +510,14 @@ def mobile_cancel_order(
     o = db.query(MallOrder).filter(
         MallOrder.order_id == order_id,
         MallOrder.user_id == current_user.user_id,
-    ).first()
+    ).with_for_update().first()
     if o is None:
         raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
     if o.status != "pending_pay":
-        raise fail(status.HTTP_400_BAD_REQUEST, f"当前状态「{ORDER_STATUS_LABELS.get(o.status, o.status)}」的订单不能取消")
+        raise fail(
+            status.HTTP_400_BAD_REQUEST,
+            f"当前状态「{ORDER_STATUS_LABELS.get(o.status, o.status)}」的订单不能取消",
+        )
 
     now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
     o.status = "cancelled"
@@ -429,3 +526,38 @@ def mobile_cancel_order(
     db.commit()
     db.refresh(o)
     return ok(_order_out(o).model_dump(), "订单已取消")
+
+
+# ---------------------------------------------------------------------------
+# 确认收货
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/orders/{order_id}/confirm",
+    summary="确认收货",
+    description="移动端确认已收货，只有已发货（shipped）状态的订单才可以确认收货，操作后状态流转为已完成（completed）。",
+)
+def mobile_confirm_receipt(
+    order_id: Annotated[str, Path(description="订单业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    o = db.query(MallOrder).filter(
+        MallOrder.order_id == order_id,
+        MallOrder.user_id == current_user.user_id,
+    ).with_for_update().first()
+    if o is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
+    if o.status != "shipped":
+        raise fail(
+            status.HTTP_400_BAD_REQUEST,
+            f"订单当前状态为「{ORDER_STATUS_LABELS.get(o.status, o.status)}」，无法确认收货",
+        )
+
+    now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    o.status = "completed"
+    o.completed_at = now_str
+    db.commit()
+    db.refresh(o)
+    return ok(_order_out(o).model_dump(), "确认收货成功")
+

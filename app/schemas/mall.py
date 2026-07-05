@@ -276,6 +276,22 @@ class MallOrderStatusUpdate(BaseModel):
         description="status=cancelled 时可传",
     )
     remark: str | None = Field(default=None, title="备注")
+    express_company: str | None = Field(
+        default=None,
+        alias="expressCompany",
+        validation_alias=AliasChoices("expressCompany", "express_company"),
+        max_length=64,
+        title="快递公司",
+        description="status=shipped 时可传",
+    )
+    express_no: str | None = Field(
+        default=None,
+        alias="expressNo",
+        validation_alias=AliasChoices("expressNo", "express_no"),
+        max_length=128,
+        title="快递单号",
+        description="status=shipped 时可传",
+    )
 
 
 class MallOrderOut(BaseModel):
@@ -306,6 +322,8 @@ class MallOrderOut(BaseModel):
     receiverName: str | None = Field(default=None, title="收件人")
     receiverPhone: str | None = Field(default=None, title="收件手机号")
     receiverAddress: str | None = Field(default=None, title="收件地址")
+    expressCompany: str | None = Field(default=None, title="快递公司")
+    expressNo: str | None = Field(default=None, title="快递单号")
     createTime: datetime
     updateTime: datetime
 

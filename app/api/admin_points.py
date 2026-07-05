@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, status
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.api.admin import AdminResponse, fail, format_time, get_admin_subject, ok
 from app.api.serializers import point_record_item
 from app.api.user_identity import normalize_phone, phone_from_user_id
+from app.api.utils import new_business_id
+from app.core.points import POINT_TYPE_COMPENSATION, award_points
 from app.db.session import get_db
 from app.models.point_record import PointRecord
 from app.models.user import User
@@ -127,4 +130,79 @@ def list_points_user_records(
             "list": [point_record_item(record) for record in records],
             "total": total,
         }
+    )
+
+
+# ---------------------------------------------------------------------------
+# 手动积分调整（管理员增减用户积分）
+# ---------------------------------------------------------------------------
+
+class PointsAdjustPayload(BaseModel):
+    amount: int = Field(
+        title="调整积分数",
+        description="正数表示增加积分，负数表示扣减积分，不能为 0",
+    )
+    remark: str = Field(
+        min_length=1, max_length=256,
+        title="调整原因",
+        description="后台操作说明，会记录在积分明细中",
+    )
+
+    @field_validator("amount")
+    @classmethod
+    def amount_not_zero(cls, v: int) -> int:
+        if v == 0:
+            raise ValueError("调整积分数不能为 0")
+        return v
+
+
+@router.post(
+    "/users/{user_id}/adjust",
+    summary="手动调整用户积分",
+    description=(
+        "管理员对指定用户手动增减积分。"
+        "amount > 0 为增加（如活动奖励/补偿），amount < 0 为扣减（如违规处罚）。"
+        "操作结果会记录在积分明细中，类型为'系统补偿'，来源 ID 为操作备注摘要。"
+    ),
+)
+def adjust_user_points(
+    user_id: Annotated[str, Path(description="用户业务 ID")],
+    payload: PointsAdjustPayload,
+    db: Annotated[Session, Depends(get_db)],
+    admin_subject: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "用户不存在")
+
+    # 扣减校验：余额不能为负
+    if payload.amount < 0 and (user.points or 0) + payload.amount < 0:
+        raise fail(
+            status.HTTP_400_BAD_REQUEST,
+            f"积分不足，当前余额 {user.points or 0}，不能扣减 {abs(payload.amount)} 分",
+        )
+
+    action = "增加" if payload.amount > 0 else "扣减"
+    record = award_points(
+        db,
+        user,
+        POINT_TYPE_COMPENSATION,
+        payload.amount,
+        title=f"管理员{action}积分",
+        remark=payload.remark,
+        source_id=f"admin:{admin_subject}",
+    )
+    db.commit()
+    db.refresh(user)
+
+    return ok(
+        {
+            "userId": user.user_id,
+            "adjustAmount": payload.amount,
+            "balanceBefore": record.balance_after - payload.amount,
+            "balanceAfter": record.balance_after,
+            "recordId": record.record_id,
+            "remark": payload.remark,
+        },
+        f"积分{action}成功",
     )

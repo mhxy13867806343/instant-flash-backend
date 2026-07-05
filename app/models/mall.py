@@ -79,6 +79,9 @@ class MallOrder(TimestampMixin, Base):
     receiver_name: Mapped[str | None] = mapped_column(String(64), nullable=True)   # 收件人姓名
     receiver_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 收件人手机号
     receiver_address: Mapped[str | None] = mapped_column(String(512), nullable=True) # 收件详细地址
+    express_company: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 快递公司
+    express_no: Mapped[str | None] = mapped_column(String(128), nullable=True)     # 快递单号
+
 
 
 
