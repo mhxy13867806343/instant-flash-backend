@@ -13,7 +13,7 @@ from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderListResponse,
@@ -27,6 +27,7 @@ from app.schemas.mall import (
     MallProductOut,
     MallProductCommentOut,
     MallProductCommentListResponse,
+    MallProductCommentAppendOut,
     MallProductUpdate,
     MallSettingOut,
     MallSettingUpdate,
@@ -624,6 +625,17 @@ class CommentStatusPayload(BaseModel):
     status: str = Field(pattern="^(approved|pending|hidden)$", description="approved 显示，pending 待审核，hidden 隐藏")
 
 
+def _append_out(a: MallProductCommentAppend) -> MallProductCommentAppendOut:
+    return MallProductCommentAppendOut(
+        appendId=a.append_id,
+        commentId=a.comment_id,
+        content=a.content,
+        images=a.images or [],
+        status=a.status,
+        createTime=a.create_time,
+    )
+
+
 def _comment_out(c: MallProductComment) -> MallProductCommentOut:
     return MallProductCommentOut(
         commentId=c.comment_id,
@@ -637,6 +649,7 @@ def _comment_out(c: MallProductComment) -> MallProductCommentOut:
         images=c.images or [],
         status=c.status,
         createTime=c.create_time,
+        appends=[_append_out(a) for a in c.appends],
     )
 
 
@@ -722,4 +735,53 @@ def delete_comment(
     db.delete(c)
     db.commit()
     return ok(message="评价删除成功")
+
+
+# ---------------------------------------------------------------------------
+# 追加评价管理 (PC 端)
+# ---------------------------------------------------------------------------
+
+class AppendStatusPayload(BaseModel):
+    status: str = Field(pattern="^(approved|hidden)$", description="approved 显示，hidden 隐藏")
+
+
+@router.put(
+    "/comments/appends/{append_id}/status",
+    summary="更新追加评价状态",
+    description="PC 端审核或隐藏商品追加评价。status: approved 显示，hidden 隐藏。",
+)
+def update_append_comment_status(
+    append_id: Annotated[str, Path(description="追加评价业务 ID")],
+    payload: AppendStatusPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    a = db.query(MallProductCommentAppend).filter(MallProductCommentAppend.append_id == append_id).first()
+    if a is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "追加评价不存在")
+
+    a.status = payload.status
+    db.commit()
+    db.refresh(a)
+    return ok(_append_out(a).model_dump(), f"追加评价状态已更新为 {payload.status}")
+
+
+@router.delete(
+    "/comments/appends/{append_id}",
+    summary="删除追加评价",
+    description="PC 端删除单条追加评价。",
+)
+def delete_append_comment(
+    append_id: Annotated[str, Path(description="追加评价业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    a = db.query(MallProductCommentAppend).filter(MallProductCommentAppend.append_id == append_id).first()
+    if a is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "追加评价不存在")
+
+    db.delete(a)
+    db.commit()
+    return ok(message="追加评价删除成功")
+
 

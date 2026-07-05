@@ -12,7 +12,7 @@ from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderCreate,
@@ -25,6 +25,8 @@ from app.schemas.mall import (
     MallProductCommentCreate,
     MallProductCommentOut,
     MallProductCommentListResponse,
+    MallProductCommentAppendCreate,
+    MallProductCommentAppendOut,
 )
 
 router = APIRouter(prefix="/api/mall", tags=["用户端商城"])
@@ -711,6 +713,17 @@ def mobile_get_shared_order(
 # 商品评价与订单关联接口 (用户端)
 # ---------------------------------------------------------------------------
 
+def _append_out(a: MallProductCommentAppend) -> MallProductCommentAppendOut:
+    return MallProductCommentAppendOut(
+        appendId=a.append_id,
+        commentId=a.comment_id,
+        content=a.content,
+        images=a.images or [],
+        status=a.status,
+        createTime=a.create_time,
+    )
+
+
 def _comment_out(c: MallProductComment) -> MallProductCommentOut:
     return MallProductCommentOut(
         commentId=c.comment_id,
@@ -724,6 +737,7 @@ def _comment_out(c: MallProductComment) -> MallProductCommentOut:
         images=c.images or [],
         status=c.status,
         createTime=c.create_time,
+        appends=[_append_out(a) for a in c.appends if a.status == "approved"],
     )
 
 
@@ -803,6 +817,49 @@ def mobile_list_product_comments(
         items=[_comment_out(c) for c in comments],
         total=total,
     )
+
+
+@router.post(
+    "/comments/{comment_id}/append",
+    status_code=201,
+    summary="对商品发表追加评价",
+    description="对已经发表过初次评价的订单追加新的使用体验。支持多次追加评价，每次支持最多 9 张晒图。",
+)
+def mobile_append_comment(
+    comment_id: Annotated[str, Path(description="初次评价业务 ID")],
+    payload: MallProductCommentAppendCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    # 查找并锁定初次评价行
+    c = db.query(MallProductComment).filter(
+        MallProductComment.comment_id == comment_id
+    ).with_for_update().first()
+    if c is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "关联的初次评价不存在")
+
+    # 权限校验：只能追评自己的订单
+    if c.user_id != current_user.user_id:
+        raise fail(status.HTTP_403_FORBIDDEN, "只能对自己购买订单的评价进行追加")
+
+    # 校验订单是否为 completed 状态（防篡改）
+    o = db.query(MallOrder).filter(MallOrder.order_id == c.order_id).first()
+    if o is None or o.status != "completed":
+        raise fail(status.HTTP_400_BAD_REQUEST, "关联订单状态异常，无法发表追加评价")
+
+    append = MallProductCommentAppend(
+        append_id=new_business_id("apc"),
+        comment_id=c.comment_id,
+        content=payload.content,
+        images=payload.images,
+        status="approved",
+    )
+    db.add(append)
+    db.commit()
+    db.refresh(append)
+
+    return ok(_append_out(append).model_dump(), "追加评价成功")
+
 
 
 

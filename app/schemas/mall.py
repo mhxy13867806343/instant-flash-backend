@@ -448,11 +448,36 @@ class MallProductCommentOut(BaseModel):
     rating: int
     content: str
     images: list[str] = []
-    status: str
+    status: str = Field(default="approved", title="状态")
     createTime: datetime
+    appends: list[MallProductCommentAppendOut] = Field(default_factory=list, title="追加评价列表")
 
 
 class MallProductCommentListResponse(BaseModel):
     items: list[MallProductCommentOut]
     total: int
+
+
+class MallProductCommentAppendCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    content: str = Field(min_length=1, max_length=1000, title="追加评价内容")
+    images: list[str] = Field(
+        default_factory=list,
+        title="晒图列表",
+        description="图片 URL 数组，最多 9 张",
+        max_length=9,
+    )
+
+
+class MallProductCommentAppendOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    appendId: str
+    commentId: str
+    content: str
+    images: list[str] = []
+    status: str
+    createTime: datetime
+
 

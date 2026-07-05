@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy import Boolean, Integer, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
@@ -121,4 +121,38 @@ class MallProductComment(TimestampMixin, Base):
         JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
     )  # 晒图图片列表，JSON 数组
     status: Mapped[str] = mapped_column(String(32), default="approved", nullable=False, index=True)  # approved 审核显示 / pending 待审核 / hidden 隐藏
+
+    # 追加评价列表（按时间正序排列，支持多次追加评论）
+    appends: Mapped[list[MallProductCommentAppend]] = relationship(
+        "MallProductCommentAppend",
+        back_populates="comment",
+        cascade="all, delete-orphan",
+        order_by="MallProductCommentAppend.create_time.asc",
+    )
+
+
+class MallProductCommentAppend(TimestampMixin, Base):
+    """商品追加评价表（支持多次追加）。"""
+
+    __tablename__ = "mall_product_comment_appends"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    append_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    comment_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("mall_product_comments.comment_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    images: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )  # 晒图
+    status: Mapped[str] = mapped_column(String(32), default="approved", nullable=False, index=True)
+
+    comment: Mapped[MallProductComment] = relationship(
+        "MallProductComment",
+        back_populates="appends",
+    )
+
 
