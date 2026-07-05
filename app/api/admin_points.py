@@ -12,6 +12,7 @@ from app.api.serializers import point_record_item
 from app.api.user_identity import normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
 from app.core.points import POINT_TYPE_COMPENSATION, award_points
+from app.core.wallet import get_or_create_wallet
 from app.db.session import get_db
 from app.models.point_record import PointRecord
 from app.models.user import User
@@ -37,6 +38,7 @@ def points_user_item(db: Session, user: User) -> dict[str, Any]:
     record_count = (
         db.query(func.count(PointRecord.id)).filter(PointRecord.user_id == user.user_id).scalar() or 0
     )
+    wallet = get_or_create_wallet(db, user.user_id)
     return {
         "userId": user.user_id,
         "nickname": user.nickname or "即闪用户",
@@ -46,6 +48,8 @@ def points_user_item(db: Session, user: User) -> dict[str, Any]:
         "totalEarned": total_earned,
         "totalConsumed": total_consumed,
         "recordCount": record_count,
+        "walletBalance": wallet.balance,
+        "walletStatus": wallet.status,
         "status": "normal" if user.is_active else "banned",
         "regTime": format_time(user.create_time),
     }

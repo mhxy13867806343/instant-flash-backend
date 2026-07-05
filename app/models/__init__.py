@@ -9,6 +9,7 @@ from app.models.system_config import AdminAccessRule, AdminAccount, AdminAnnounc
 from app.models.user import User
 from app.models.user_config import UserCustomConfig
 from app.models.mall import MallSetting, MallProduct, MallOrder, MallPaymentMethod
+from app.models.wallet import UserWallet, WalletRecord
 
 __all__ = [
     "AdminAgreement",
@@ -41,4 +42,6 @@ __all__ = [
     "MallOrder",
     "MallPaymentMethod",
     "FeedbackSubmission",
+    "UserWallet",
+    "WalletRecord",
 ]

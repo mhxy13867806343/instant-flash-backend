@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.admin import fail, format_time, get_admin_subject, ok
 from app.api.utils import new_business_id
 from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
+from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
@@ -404,6 +405,17 @@ def update_order_status(
                     remark=f"订单号：{o.order_id}，{payload.cancel_reason or '平台取消'}",
                     source_id=o.order_id,
                 )
+        # 已支付/已发货订单取消：退款到钱包余额
+        if o.status in ("paid", "shipped") and o.pay_type == "wallet" and o.total_price > 0:
+            change_wallet_balance(
+                db,
+                o.user_id,
+                "refund",
+                o.total_price,  # 正数 = 退还
+                title="订单取消退还余额",
+                remark=f"订单号：{o.order_id}，{payload.cancel_reason or '平台取消'}",
+                source_id=o.order_id,
+            )
         # 已支付/已发货订单取消：恢复库存
         if o.status in ("paid", "shipped"):
             p = db.query(MallProduct).filter(MallProduct.product_id == o.product_id).first()

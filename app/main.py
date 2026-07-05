@@ -17,6 +17,7 @@ from app.api.address import router as address_router
 from app.api.admin import router as admin_router
 from app.api.admin_points import router as admin_points_router
 from app.api.admin_mall import router as admin_mall_router
+from app.api.admin_wallet import router as admin_wallet_router
 from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
@@ -27,6 +28,7 @@ from app.api.posts import router as posts_router
 from app.api.topics import tags_router, topics_router
 from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
+from app.api.wallet import router as wallet_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
 from app.core.rate_limit import check_rate_limit
@@ -69,9 +71,11 @@ app.include_router(address_router)
 app.include_router(admin_router)
 app.include_router(admin_points_router)
 app.include_router(admin_mall_router)
+app.include_router(admin_wallet_router)
 app.include_router(auth_router)
 app.include_router(mall_router)
 app.include_router(points_router)
+app.include_router(wallet_router)
 app.include_router(posts_router)
 app.include_router(topics_router)
 app.include_router(tags_router)

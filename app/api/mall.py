@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
 from app.core.points import POINT_TYPE_MALL, award_points
+from app.core.wallet import get_or_create_wallet, change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
@@ -308,6 +309,15 @@ def mobile_create_order(
                 f"积分不足，需要 {points_needed} 积分，当前余额 {current_user.points or 0}",
             )
         unit_price = 0  # 纯积分支付，价格为 0
+    elif pay_type == "wallet":
+        # 钱包支付：校验余额是否足够
+        wallet = get_or_create_wallet(db, current_user.user_id)
+        total_cost = unit_price * payload.quantity
+        if wallet.balance < total_cost:
+            raise fail(
+                status.HTTP_400_BAD_REQUEST,
+                f"余额不足，需要 {total_cost/100:.2f} 元，当前余额 {wallet.balance/100:.2f} 元",
+            )
 
     total = unit_price * payload.quantity
 
@@ -406,6 +416,19 @@ def mobile_pay_order(
             title=f"兑换商品：{o.product_title}",
             source_id=o.order_id,
         )
+    elif o.pay_type == "wallet":
+        # 钱包余额扣除
+        try:
+            change_wallet_balance(
+                db,
+                current_user.user_id,
+                "consume",
+                -o.total_price,
+                title=f"购买商品：{o.product_title}",
+                source_id=o.order_id,
+            )
+        except ValueError as e:
+            raise fail(status.HTTP_400_BAD_REQUEST, str(e))
 
     # 扣减库存 & 增加销量（行锁下操作，安全）
     p = (
