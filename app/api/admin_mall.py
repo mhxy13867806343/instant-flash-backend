@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,7 @@ from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderListResponse,
@@ -24,6 +25,8 @@ from app.schemas.mall import (
     MallProductCreate,
     MallProductListResponse,
     MallProductOut,
+    MallProductCommentOut,
+    MallProductCommentListResponse,
     MallProductUpdate,
     MallSettingOut,
     MallSettingUpdate,
@@ -100,6 +103,7 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         expressCompany=o.express_company,
         expressNo=o.express_no,
         shareToken=o.share_token,
+        isCommented=o.is_commented,
         createTime=o.create_time,
         updateTime=o.update_time,
     )
@@ -610,3 +614,112 @@ def mall_stats(
             "onSaleProducts": on_sale_products,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# 商品评论/评价管理 (PC 端)
+# ---------------------------------------------------------------------------
+
+class CommentStatusPayload(BaseModel):
+    status: str = Field(pattern="^(approved|pending|hidden)$", description="approved 显示，pending 待审核，hidden 隐藏")
+
+
+def _comment_out(c: MallProductComment) -> MallProductCommentOut:
+    return MallProductCommentOut(
+        commentId=c.comment_id,
+        orderId=c.order_id,
+        productId=c.product_id,
+        userId=c.user_id,
+        nickname=c.nickname or "即闪用户",
+        avatar=c.avatar or "",
+        rating=c.rating,
+        content=c.content,
+        images=c.images or [],
+        status=c.status,
+        createTime=c.create_time,
+    )
+
+
+@router.get(
+    "/comments",
+    response_model=MallProductCommentListResponse,
+    summary="评价列表",
+    description="PC 端获取所有商品评价列表。支持按商品 ID、用户 ID、状态及评分过滤。",
+)
+def list_comments(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+    product_id: Annotated[str | None, Query(alias="productId")] = None,
+    user_id: Annotated[str | None, Query(alias="userId")] = None,
+    status_filter: Annotated[str | None, Query(alias="status", pattern="^(approved|pending|hidden)$")] = None,
+    rating: Annotated[int | None, Query(ge=1, le=5)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MallProductCommentListResponse:
+    q = db.query(MallProductComment)
+    if product_id:
+        q = q.filter(MallProductComment.product_id == product_id)
+    if user_id:
+        q = q.filter(MallProductComment.user_id == user_id)
+    if status_filter:
+        q = q.filter(MallProductComment.status == status_filter)
+    if rating:
+        q = q.filter(MallProductComment.rating == rating)
+
+    total = q.count()
+    comments = (
+        q.order_by(MallProductComment.create_time.desc(), MallProductComment.id.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    return MallProductCommentListResponse(
+        items=[_comment_out(c) for c in comments],
+        total=total,
+    )
+
+
+@router.put(
+    "/comments/{comment_id}/status",
+    summary="更新评价状态",
+    description="PC 端审核或隐藏商品评价。status: approved 通过并公开，pending 待审核，hidden 隐藏不显示。",
+)
+def update_comment_status(
+    comment_id: Annotated[str, Path(description="评价业务 ID")],
+    payload: CommentStatusPayload,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    c = db.query(MallProductComment).filter(MallProductComment.comment_id == comment_id).first()
+    if c is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "评价不存在")
+
+    c.status = payload.status
+    db.commit()
+    db.refresh(c)
+    return ok(_comment_out(c).model_dump(), f"评价状态已更新为 {payload.status}")
+
+
+@router.delete(
+    "/comments/{comment_id}",
+    summary="删除评价",
+    description="PC 端删除单条评价。",
+)
+def delete_comment(
+    comment_id: Annotated[str, Path(description="评价业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    c = db.query(MallProductComment).filter(MallProductComment.comment_id == comment_id).first()
+    if c is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "评价不存在")
+
+    # 找到关联订单并重置 is_commented 状态，允许重新评价（可选，这里重置更友好）
+    o = db.query(MallOrder).filter(MallOrder.order_id == c.order_id).first()
+    if o is not None:
+        o.is_commented = False
+
+    db.delete(c)
+    db.commit()
+    return ok(message="评价删除成功")
+

@@ -12,7 +12,7 @@ from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderCreate,
@@ -22,6 +22,9 @@ from app.schemas.mall import (
     MallProductOut,
     MallProductListResponse,
     ORDER_STATUS_LABELS,
+    MallProductCommentCreate,
+    MallProductCommentOut,
+    MallProductCommentListResponse,
 )
 
 router = APIRouter(prefix="/api/mall", tags=["用户端商城"])
@@ -105,6 +108,7 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         expressCompany=o.express_company,
         expressNo=o.express_no,
         shareToken=o.share_token,
+        isCommented=o.is_commented,
         createTime=o.create_time,
         updateTime=o.update_time,
     )
@@ -701,5 +705,104 @@ def mobile_get_shared_order(
         expressCompany=o.express_company,
         expressNo=o.express_no,
     )
+
+
+# ---------------------------------------------------------------------------
+# 商品评价与订单关联接口 (用户端)
+# ---------------------------------------------------------------------------
+
+def _comment_out(c: MallProductComment) -> MallProductCommentOut:
+    return MallProductCommentOut(
+        commentId=c.comment_id,
+        orderId=c.order_id,
+        productId=c.product_id,
+        userId=c.user_id,
+        nickname=c.nickname or "即闪用户",
+        avatar=c.avatar or "",
+        rating=c.rating,
+        content=c.content,
+        images=c.images or [],
+        status=c.status,
+        createTime=c.create_time,
+    )
+
+
+@router.post(
+    "/orders/{order_id}/comment",
+    status_code=201,
+    summary="评价订单/商品",
+    description="对已完成的订单发起评价。每个订单只允许评价一次，支持 1-5 星级以及最多 9 张晒图。",
+)
+def mobile_comment_order(
+    order_id: Annotated[str, Path(description="订单业务 ID")],
+    payload: MallProductCommentCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    # 查找并锁定订单行
+    o = db.query(MallOrder).filter(
+        MallOrder.order_id == order_id,
+        MallOrder.user_id == current_user.user_id,
+    ).with_for_update().first()
+    if o is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
+    if o.status != "completed":
+        raise fail(
+            status.HTTP_400_BAD_REQUEST,
+            f"订单当前状态为「{ORDER_STATUS_LABELS.get(o.status, o.status)}」，只有已完成订单才能发表评价",
+        )
+    if o.is_commented:
+        raise fail(status.HTTP_400_BAD_REQUEST, "该订单已评价过，不能重复评价")
+
+    comment = MallProductComment(
+        comment_id=new_business_id("cmt"),
+        order_id=o.order_id,
+        product_id=o.product_id,
+        user_id=current_user.user_id,
+        nickname=current_user.nickname,
+        avatar=current_user.avatar,
+        rating=payload.rating,
+        content=payload.content,
+        images=payload.images,
+        status="approved",  # 默认通过，后台可隐藏
+    )
+    db.add(comment)
+    
+    # 标记订单已评价
+    o.is_commented = True
+    db.commit()
+    db.refresh(comment)
+    
+    return ok(_comment_out(comment).model_dump(), "发表评价成功")
+
+
+@router.get(
+    "/products/{product_id}/comments",
+    response_model=MallProductCommentListResponse,
+    summary="查看商品评价列表",
+    description="分页获取指定商品的评价列表（仅返回状态为 approved 的公开评论）。",
+)
+def mobile_list_product_comments(
+    product_id: Annotated[str, Path(description="商品业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+) -> MallProductCommentListResponse:
+    q = db.query(MallProductComment).filter(
+        MallProductComment.product_id == product_id,
+        MallProductComment.status == "approved",
+    )
+    total = q.count()
+    comments = (
+        q.order_by(MallProductComment.create_time.desc(), MallProductComment.id.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    return MallProductCommentListResponse(
+        items=[_comment_out(c) for c in comments],
+        total=total,
+    )
+
 
 

@@ -325,6 +325,7 @@ class MallOrderOut(BaseModel):
     expressCompany: str | None = Field(default=None, title="快递公司")
     expressNo: str | None = Field(default=None, title="快递单号")
     shareToken: str | None = Field(default=None, title="分享Token")
+    isCommented: bool = Field(default=False, title="是否已评价")
     createTime: datetime
     updateTime: datetime
 
@@ -416,3 +417,42 @@ class MallPaymentMethodOut(BaseModel):
     remark: str | None = None
     createTime: datetime
     updateTime: datetime
+
+
+# ---------------------------------------------------------------------------
+# 商品评价/评论
+# ---------------------------------------------------------------------------
+
+class MallProductCommentCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rating: int = Field(default=5, ge=1, le=5, title="评分", description="评分 1-5 星，1 最差，5 最好")
+    content: str = Field(min_length=1, max_length=1000, title="评价内容")
+    images: list[str] = Field(
+        default_factory=list,
+        title="晒图列表",
+        description="图片 URL 数组，最多 9 张",
+        max_length=9,
+    )
+
+
+class MallProductCommentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commentId: str
+    orderId: str
+    productId: str
+    userId: str
+    nickname: str | None = None
+    avatar: str | None = None
+    rating: int
+    content: str
+    images: list[str] = []
+    status: str
+    createTime: datetime
+
+
+class MallProductCommentListResponse(BaseModel):
+    items: list[MallProductCommentOut]
+    total: int
+

@@ -79,9 +79,9 @@ class MallOrder(TimestampMixin, Base):
     receiver_name: Mapped[str | None] = mapped_column(String(64), nullable=True)   # 收件人姓名
     receiver_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 收件人手机号
     receiver_address: Mapped[str | None] = mapped_column(String(512), nullable=True) # 收件详细地址
-    express_company: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 快递公司
-    express_no: Mapped[str | None] = mapped_column(String(128), nullable=True)     # 快递单号
     share_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True) # 分享Token
+    is_commented: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False) # 是否已评价
+
 
 
 
@@ -101,3 +101,24 @@ class MallPaymentMethod(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MallProductComment(TimestampMixin, Base):
+    """商品评价/评论表。"""
+
+    __tablename__ = "mall_product_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    comment_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)  # 限制一个订单评价一次
+    product_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    avatar: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    rating: Mapped[int] = mapped_column(Integer, default=5, nullable=False)  # 评分 1-5 星
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # 评价详情内容
+    images: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )  # 晒图图片列表，JSON 数组
+    status: Mapped[str] = mapped_column(String(32), default="approved", nullable=False, index=True)  # approved 审核显示 / pending 待审核 / hidden 隐藏
+
