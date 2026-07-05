@@ -103,6 +103,7 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         receiverAddress=o.receiver_address,
         expressCompany=o.express_company,
         expressNo=o.express_no,
+        shareToken=o.share_token,
         createTime=o.create_time,
         updateTime=o.update_time,
     )
@@ -560,4 +561,122 @@ def mobile_confirm_receipt(
     db.commit()
     db.refresh(o)
     return ok(_order_out(o).model_dump(), "确认收货成功")
+
+
+# ---------------------------------------------------------------------------
+# 订单分享功能
+# ---------------------------------------------------------------------------
+
+def mask_name(name: str | None) -> str | None:
+    if not name:
+        return name
+    if len(name) <= 1:
+        return name
+    if len(name) == 2:
+        return name[0] + "*"
+    return name[0] + "*" * (len(name) - 2) + name[-1]
+
+
+def mask_phone(phone: str | None) -> str | None:
+    if not phone:
+        return phone
+    if len(phone) >= 11:
+        return phone[:3] + "****" + phone[-4:]
+    return phone[:2] + "***" + phone[-2:]
+
+
+def mask_address(address: str | None) -> str | None:
+    if not address:
+        return address
+    # 保留省/市/区等前部信息，打码后部具体地址
+    if len(address) > 8:
+        return address[:8] + "******"
+    return address[:3] + "******"
+
+
+@router.post(
+    "/orders/{order_id}/share",
+    summary="生成订单分享链接",
+    description="生成用于订单公开分享的 Token 令牌。每个订单的分享 Token 全局唯一。",
+)
+def mobile_share_order(
+    order_id: Annotated[str, Path(description="订单业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    o = db.query(MallOrder).filter(
+        MallOrder.order_id == order_id,
+        MallOrder.user_id == current_user.user_id,
+    ).first()
+    if o is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "订单不存在")
+
+    # 若未生成过 share_token，则在此生成并持久化
+    if not o.share_token:
+        # 循环确保唯一性
+        while True:
+            candidate = new_business_id("shr")
+            collision = db.query(MallOrder.id).filter(MallOrder.share_token == candidate).first()
+            if not collision:
+                o.share_token = candidate
+                break
+        db.commit()
+        db.refresh(o)
+
+    # 可在此生成完整的分享跳转链接格式，如：https://h5.instantflash.com/order-share?token=xxx
+    share_link = f"/pages/mall/order-share?token={o.share_token}"
+
+    return ok(
+        {
+            "orderId": o.order_id,
+            "shareToken": o.share_token,
+            "shareLink": share_link,
+            "shareText": f"【即闪积分商城】我购买了「{o.product_title}」，快来帮我看看订单进度吧！链接: {share_link}",
+        },
+        "分享凭证生成成功",
+    )
+
+
+from app.schemas.mall import MallOrderSharedOut
+
+@router.get(
+    "/orders/share/{share_token}",
+    response_model=MallOrderSharedOut,
+    summary="查看被分享的订单",
+    description="无需登录，通过分享 Token 查看订单状态，所有收货人敏感数据（姓名、手机、地址）均已打码脱敏保护隐私。",
+)
+def mobile_get_shared_order(
+    share_token: Annotated[str, Path(description="分享 Token 令牌")],
+    db: Annotated[Session, Depends(get_db)],
+) -> MallOrderSharedOut:
+    o = db.query(MallOrder).filter(MallOrder.share_token == share_token).first()
+    if o is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "分享的订单不存在或已被删除")
+
+    # 自动处理待支付超时订单的流转
+    o = _auto_cancel_if_expired(db, o)
+
+    return MallOrderSharedOut(
+        orderId=o.order_id,
+        productId=o.product_id,
+        productTitle=o.product_title,
+        productImage=o.product_image,
+        quantity=o.quantity,
+        unitPrice=o.unit_price,
+        totalPrice=o.total_price,
+        pointsUsed=o.points_used,
+        status=o.status,
+        statusLabel=ORDER_STATUS_LABELS.get(o.status, o.status),
+        createTime=o.create_time,
+        
+        # 脱敏数据处理
+        receiverName=mask_name(o.receiver_name),
+        receiverPhone=mask_phone(o.receiver_phone),
+        receiverAddress=mask_address(o.receiver_address),
+        
+        # 物流公开信息
+        expressCompany=o.express_company,
+        expressNo=o.express_no,
+    )
+
 

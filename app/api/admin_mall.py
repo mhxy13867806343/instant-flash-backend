@@ -98,6 +98,7 @@ def _order_out(o: MallOrder) -> MallOrderOut:
         receiverAddress=o.receiver_address,
         expressCompany=o.express_company,
         expressNo=o.express_no,
+        shareToken=o.share_token,
         createTime=o.create_time,
         updateTime=o.update_time,
     )

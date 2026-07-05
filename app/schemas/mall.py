@@ -324,6 +324,7 @@ class MallOrderOut(BaseModel):
     receiverAddress: str | None = Field(default=None, title="收件地址")
     expressCompany: str | None = Field(default=None, title="快递公司")
     expressNo: str | None = Field(default=None, title="快递单号")
+    shareToken: str | None = Field(default=None, title="分享Token")
     createTime: datetime
     updateTime: datetime
 
@@ -331,6 +332,33 @@ class MallOrderOut(BaseModel):
 class MallOrderListResponse(BaseModel):
     items: list[MallOrderOut]
     total: int
+
+
+class MallOrderSharedOut(BaseModel):
+    """公开分享订单视图数据模型（不含敏感个人隐私，已打码脱敏）。"""
+    model_config = ConfigDict(from_attributes=True)
+
+    orderId: str
+    productId: str
+    productTitle: str
+    productImage: str | None = None
+    quantity: int
+    unitPrice: int = Field(title="单价（分）")
+    totalPrice: int = Field(title="总金额（分）")
+    pointsUsed: int = Field(title="消耗积分")
+    status: str
+    statusLabel: str
+    createTime: datetime
+    
+    # 脱敏脱密隐私保护的收货人信息
+    receiverName: str | None = Field(default=None, title="收件人（脱敏）")
+    receiverPhone: str | None = Field(default=None, title="手机号（脱敏）")
+    receiverAddress: str | None = Field(default=None, title="收件地址（脱敏）")
+    
+    # 物流跟踪信息
+    expressCompany: str | None = Field(default=None, title="快递公司")
+    expressNo: str | None = Field(default=None, title="快递单号")
+
 
 
 # ---------------------------------------------------------------------------
