@@ -207,4 +207,76 @@ class MallProductShare(TimestampMixin, Base):
     platform: Mapped[str | None] = mapped_column(String(64), nullable=True)  # wechat/alipay/moments等
 
 
+class MallOrderLogisticsStep(TimestampMixin, Base):
+    """订单物流轨迹表。"""
+
+    __tablename__ = "mall_order_logistics_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    logistics_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    order_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mall_orders.order_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    step_time: Mapped[str] = mapped_column(String(32), nullable=False)  # ISO 时间字符串，如 "2026-07-06T12:00:00Z"
+    content: Mapped[str] = mapped_column(String(256), nullable=False)  # 轨迹内容描述，如 "您的订单已揽收"
+
+
+class MallCustomerService(TimestampMixin, Base):
+    """客服配置表（可动态配置多个客服）。"""
+
+    __tablename__ = "mall_customer_services"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    cs_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)  # 客服展示名称
+    avatar: Mapped[str | None] = mapped_column(String(512), nullable=True)  # 客服头像 URL
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)  # active 启用 / inactive 停用
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class MallChatSession(TimestampMixin, Base):
+    """聊天会话表。"""
+
+    __tablename__ = "mall_chat_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False)
+    cs_id: Mapped[str] = mapped_column(String(64), ForeignKey("mall_customer_services.cs_id", ondelete="CASCADE"), index=True, nullable=False)
+    product_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 带入的商品ID，进入对话时关联的商品
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class MallChatMessage(TimestampMixin, Base):
+    """聊天消息表。"""
+
+    __tablename__ = "mall_chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    message_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mall_chat_sessions.session_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sender_type: Mapped[str] = mapped_column(String(32), nullable=False)  # user / cs
+    sender_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    msg_type: Mapped[str] = mapped_column(String(32), default="text", nullable=False)  # text / bargain / image
+    bargain_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # 关联还价记录
+
+
+class MallProductBargain(TimestampMixin, Base):
+    """商品还价申请表。"""
+
+    __tablename__ = "mall_product_bargains"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bargain_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False)
+    product_id: Mapped[str] = mapped_column(String(64), ForeignKey("mall_products.product_id", ondelete="CASCADE"), index=True, nullable=False)
+    original_price: Mapped[int] = mapped_column(Integer, nullable=False)  # 原价(现价)，单位：分
+    bargain_price: Mapped[int] = mapped_column(Integer, nullable=False)  # 用户还价出价，单位：分
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)  # pending 待审核 / approved 同意还价 / rejected 拒绝 / used 已下单使用
+
+
+
 

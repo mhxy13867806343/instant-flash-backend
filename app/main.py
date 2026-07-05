@@ -22,6 +22,7 @@ from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
 from app.api.mall import router as mall_router
+from app.api.mall_interactions import router as mall_interactions_router
 from app.api.messages import router as messages_router
 from app.api.points import router as points_router
 from app.api.posts import router as posts_router
@@ -74,6 +75,7 @@ app.include_router(admin_mall_router)
 app.include_router(admin_wallet_router)
 app.include_router(auth_router)
 app.include_router(mall_router)
+app.include_router(mall_interactions_router)
 app.include_router(points_router)
 app.include_router(wallet_router)
 app.include_router(posts_router)

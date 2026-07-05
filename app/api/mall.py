@@ -13,7 +13,7 @@ from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare, MallProductBargain
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderCreate,
@@ -333,6 +333,18 @@ def mobile_create_order(
     # 积分支付：校验 points_cost > 0 且用户积分足够
     points_needed = 0
     unit_price = p.current_price
+    
+    # 还价检查：如果不是积分支付，检查是否有已审核通过的还价
+    if pay_type != "points":
+        bargain = db.query(MallProductBargain).filter(
+            MallProductBargain.user_id == current_user.user_id,
+            MallProductBargain.product_id == p.product_id,
+            MallProductBargain.status == "approved",
+        ).order_by(MallProductBargain.create_time.desc()).first()
+        if bargain:
+            unit_price = bargain.bargain_price
+            bargain.status = "used"  # 还价用完即失效
+
     if pay_type == "points":
         if p.points_cost <= 0:
             raise fail(status.HTTP_400_BAD_REQUEST, "该商品不支持积分兑换")
