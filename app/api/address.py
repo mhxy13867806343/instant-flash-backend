@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
-from functools import lru_cache
+import logging
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/address", tags=["公共地区"])
 
 ADDRESS_FILE = Path(__file__).resolve().parents[2] / "static" / "v1" / "address" / "address_min.json"
+
+_address_cache: list[dict[str, Any]] | None = None
 
 
 def cascader_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -23,11 +27,21 @@ def cascader_node(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=1)
 def load_address_tree() -> list[dict[str, Any]]:
-    with ADDRESS_FILE.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-    return [cascader_node(node) for node in data]
+    global _address_cache
+    if _address_cache is not None:
+        return _address_cache
+    if not ADDRESS_FILE.exists():
+        logger.warning("地区数据文件不存在，返回空地区树：%s", ADDRESS_FILE)
+        return []
+    try:
+        with ADDRESS_FILE.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("地区数据文件读取失败，返回空地区树：%s", exc)
+        return []
+    _address_cache = [cascader_node(node) for node in data]
+    return _address_cache
 
 
 @router.get(

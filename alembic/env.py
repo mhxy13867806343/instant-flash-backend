@@ -7,7 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models import admin_agreement, comment, message, post, post_like, post_share, system_config, user  # noqa: F401
+from app.models import admin_agreement, comment, message, point_record, post, post_like, post_share, system_config, user  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -15,10 +15,12 @@ from app.api.agreements import router as agreements_router
 from app.api.agreements import user_router as agreements_user_router
 from app.api.address import router as address_router
 from app.api.admin import router as admin_router
+from app.api.admin_points import router as admin_points_router
 from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
 from app.api.messages import router as messages_router
+from app.api.points import router as points_router
 from app.api.posts import router as posts_router
 from app.api.topics import tags_router, topics_router
 from app.api.uploads import router as uploads_router
@@ -39,6 +41,7 @@ openapi_tags = [
     {"name": "用户端反馈", "description": "用户端动态反馈表单和反馈提交"},
     {"name": "用户端协议", "description": "用户端隐私协议和用户协议"},
     {"name": "用户端用户", "description": "当前登录用户资料和我的内容"},
+    {"name": "用户端积分", "description": "当前登录用户积分概览、明细、签到与邀请奖励"},
     {"name": "用户端消息", "description": "当前登录用户消息中心"},
     {"name": "公共地区", "description": "PC 后台和用户端共用的省市区三级地区数据"},
     {"name": "系统", "description": "健康检查等系统接口"},
@@ -61,7 +64,9 @@ app.add_middleware(
 
 app.include_router(address_router)
 app.include_router(admin_router)
+app.include_router(admin_points_router)
 app.include_router(auth_router)
+app.include_router(points_router)
 app.include_router(posts_router)
 app.include_router(topics_router)
 app.include_router(tags_router)

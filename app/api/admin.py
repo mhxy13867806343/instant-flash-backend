@@ -46,7 +46,7 @@ DEFAULT_FEEDBACK_FIELDS = [
     {"field_id": "fb_field_title", "field_key": "title", "label": "反馈标题", "type": "input", "placeholder": "请输入标题或菜单名称", "required": True, "sort": 20},
     {"field_id": "fb_field_content", "field_key": "content", "label": "反馈内容", "type": "textarea", "placeholder": "请填写具体反馈内容", "required": True, "sort": 30},
 ]
-DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule", "user_online", "feedback"]
+DEFAULT_ADMIN_PERMISSIONS = ["dashboard", "user", "content", "comment", "like", "share", "points", "simulator", "account", "announcement", "version", "system", "tag", "region", "dict", "menu", "message", "agreement", "log", "access_rule", "user_online", "feedback"]
 DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_dashboard", "permission_key": "dashboard", "label": "数据看板", "description": "后台首页数据看板", "sort": 10, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_user", "permission_key": "user", "label": "用户管理", "description": "用户列表、禁用和详情", "sort": 20, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -54,6 +54,7 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
     {"permission_id": "perm_comment", "permission_key": "comment", "label": "评论管理", "description": "评论列表与删除", "sort": 40, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_like", "permission_key": "like", "label": "点赞管理", "description": "内容点赞记录管理", "sort": 45, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_share", "permission_key": "share", "label": "分享管理", "description": "内容分享记录管理", "sort": 46, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
+    {"permission_id": "perm_points", "permission_key": "points", "label": "积分管理", "description": "用户积分列表与积分明细", "sort": 47, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_simulator", "permission_key": "simulator", "label": "App 仿真模拟", "description": "App 仿真模拟页面", "sort": 50, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_account", "permission_key": "account", "label": "账号管理", "description": "后台账号和角色配置", "sort": 60, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
     {"permission_id": "perm_announcement", "permission_key": "announcement", "label": "公告管理", "description": "单公告和公告列表", "sort": 70, "status": "enabled", "is_default": True, "remark": "系统默认权限"},
@@ -72,7 +73,7 @@ DEFAULT_ADMIN_PERMISSION_MODULES: list[dict[str, Any]] = [
 ]
 DEFAULT_ADMIN_ROLES: list[dict[str, Any]] = [
     {"role_id": "role_superadmin", "role_key": "superadmin", "label": "超级管理员", "icon": "StarFilled", "permissions": DEFAULT_ADMIN_PERMISSIONS, "sort": 10, "status": "enabled", "is_default": True, "remark": "系统内置超级管理员角色"},
-    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "account", "tag", "region", "message", "log", "access_rule", "user_online", "feedback"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
+    {"role_id": "role_admin", "role_key": "admin", "label": "管理员", "icon": "UserFilled", "permissions": ["dashboard", "user", "content", "comment", "like", "share", "points", "account", "tag", "region", "message", "log", "access_rule", "user_online", "feedback"], "sort": 20, "status": "enabled", "is_default": True, "remark": "系统内置管理员角色"},
     {"role_id": "role_operator", "role_key": "operator", "label": "运营员", "icon": "Setting", "permissions": ["dashboard", "content", "comment", "like", "share", "tag"], "sort": 30, "status": "enabled", "is_default": True, "remark": "系统内置运营角色"},
     {"role_id": "role_viewer", "role_key": "viewer", "label": "观察员", "icon": "View", "permissions": ["dashboard"], "sort": 40, "status": "enabled", "is_default": True, "remark": "系统内置观察员角色"},
 ]
@@ -83,6 +84,8 @@ DEFAULT_ADMIN_MENUS: list[dict[str, Any]] = [
     {"menu_id": "menu_comment", "parent_id": None, "title": "评论管理", "path": "/comment", "name": "CommentList", "component": "views/comment/List", "icon": "ChatLineSquare", "type": "menu", "permission": "comment", "sort": 40},
     {"menu_id": "menu_like", "parent_id": None, "title": "点赞管理", "path": "/like", "name": "LikeList", "component": "views/like/List", "icon": "Star", "type": "menu", "permission": "like", "sort": 45},
     {"menu_id": "menu_share", "parent_id": None, "title": "分享管理", "path": "/share", "name": "ShareList", "component": "views/share/List", "icon": "Share", "type": "menu", "permission": "share", "sort": 46},
+    {"menu_id": "menu_points", "parent_id": None, "title": "积分管理", "path": "/points", "name": "PointUserList", "component": "views/points/UserList", "icon": "Coin", "type": "menu", "permission": "points", "sort": 47},
+    {"menu_id": "menu_points_records", "parent_id": None, "title": "积分明细", "path": "/points/:userId/records", "name": "PointUserRecords", "component": "views/points/UserRecords", "icon": "Tickets", "type": "menu", "permission": "points", "sort": 48, "visible": False, "remark": "用户积分明细，详情路由不在侧边栏显示"},
     {"menu_id": "menu_simulator", "parent_id": None, "title": "App 仿真模拟", "path": "/simulator", "name": "AppSimulator", "component": "views/simulator/Index", "icon": "Smartphone", "type": "menu", "permission": "simulator", "sort": 50},
     {"menu_id": "menu_account", "parent_id": None, "title": "账号管理", "path": "/account", "name": "AccountList", "component": "views/account/List", "icon": "UserFilled", "type": "menu", "permission": "account", "sort": 60},
     {"menu_id": "menu_announcement", "parent_id": None, "title": "公告管理", "path": "/announcement", "name": "Announcement", "component": None, "redirect": "/announcement/single", "icon": "Bell", "type": "catalog", "permission": "announcement", "sort": 70},

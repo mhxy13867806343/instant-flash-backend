@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -25,5 +25,6 @@ class User(TimestampMixin, Base):
     city: Mapped[str | None] = mapped_column(String(64))
     district: Mapped[str | None] = mapped_column(String(64))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")

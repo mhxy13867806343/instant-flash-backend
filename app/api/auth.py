@@ -17,6 +17,7 @@ from app.api.user_identity import (
     should_use_mobile_user_id,
 )
 from app.api.utils import new_business_id
+from app.core.points import grant_daily_login, grant_registration
 from app.core.security import create_access_token, revoke_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -142,7 +143,8 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
         else:
             raise fail(status.HTTP_400_BAD_REQUEST, "该 openid/unionid/phone 已绑定其他 userId")
 
-    if user is None:
+    created = user is None
+    if created:
         user = User(user_id=user_id)
         db.add(user)
     else:
@@ -161,6 +163,10 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
             setattr(user, field, value)
 
     user.last_time = utc_now()
+    db.flush()
+    if created:
+        grant_registration(db, user)
+    grant_daily_login(db, user)
     db.commit()
     db.refresh(user)
 
@@ -218,6 +224,10 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             setattr(user, field, value)
 
     user.last_time = utc_now()
+    db.flush()
+    if created_user:
+        grant_registration(db, user)
+    grant_daily_login(db, user)
     db.commit()
     db.refresh(user)
 

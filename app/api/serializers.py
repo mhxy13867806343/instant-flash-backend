@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
+from app.core.points import point_type_name
 from app.models.comment import Comment
 from app.models.message import Message
+from app.models.point_record import PointRecord
 from app.models.post import Post
 from app.models.post_share import PostShare
 from app.models.user import User
@@ -10,6 +14,29 @@ from app.schemas.message import MessageOut
 from app.schemas.post import PostOut
 from app.schemas.share import ShareOut
 from app.schemas.user import UserProfile
+
+
+def _format_time(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def point_record_item(record: PointRecord) -> dict[str, object]:
+    return {
+        "recordId": record.record_id,
+        "userId": record.user_id,
+        "type": record.type,
+        "typeName": point_type_name(record.type),
+        "direction": record.direction,
+        "changeAmount": record.change_amount,
+        "balanceAfter": record.balance_after,
+        "title": record.title or "",
+        "remark": record.remark or "",
+        "sourceId": record.source_id or "",
+        "createdAt": _format_time(record.create_time),
+        "createTime": _format_time(record.create_time),
+    }
 
 
 def user_profile(user: User) -> UserProfile:
