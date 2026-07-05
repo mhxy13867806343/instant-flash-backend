@@ -21,6 +21,7 @@ POINT_TYPE_SHARE = 5
 POINT_TYPE_COMPENSATION = 6
 POINT_TYPE_CHECKIN = 7
 POINT_TYPE_OTHER = 8
+POINT_TYPE_MALL = 9  # 商城积分兑换（消耗/退还）
 
 POINT_TYPE_NAMES: dict[int, str] = {
     POINT_TYPE_LOGIN: "登录",
@@ -32,6 +33,7 @@ POINT_TYPE_NAMES: dict[int, str] = {
     POINT_TYPE_COMPENSATION: "系统补偿",
     POINT_TYPE_CHECKIN: "签到",
     POINT_TYPE_OTHER: "其他",
+    POINT_TYPE_MALL: "商城兑换",
 }
 
 LOGIN_POINTS = 2
@@ -65,6 +67,7 @@ def award_points(
     remark: str | None = None,
     source_id: str | None = None,
     direction: str | None = None,
+    expire_at: datetime | None = None,
 ) -> PointRecord:
     resolved_direction = direction or ("consume" if amount < 0 else "earn")
     user.points = (user.points or 0) + amount
@@ -78,6 +81,7 @@ def award_points(
         title=title or point_type_name(type_int),
         remark=remark,
         source_id=source_id,
+        expire_at=expire_at,
     )
     db.add(record)
     db.flush()

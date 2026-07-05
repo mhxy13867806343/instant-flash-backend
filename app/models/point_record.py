@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -21,3 +23,5 @@ class PointRecord(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(128))
     remark: Mapped[str | None] = mapped_column(Text)
     source_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    # 积分有效期，NULL 表示永不过期
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

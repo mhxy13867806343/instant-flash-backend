@@ -16,9 +16,11 @@ from app.api.agreements import user_router as agreements_user_router
 from app.api.address import router as address_router
 from app.api.admin import router as admin_router
 from app.api.admin_points import router as admin_points_router
+from app.api.admin_mall import router as admin_mall_router
 from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
+from app.api.mall import router as mall_router
 from app.api.messages import router as messages_router
 from app.api.points import router as points_router
 from app.api.posts import router as posts_router
@@ -34,6 +36,7 @@ logger = logging.getLogger(__name__)
 openapi_tags = [
     {"name": "后台管理", "description": "后台管理系统接口：登录、看板、用户、内容、评论、协议"},
     {"name": "鉴权登录", "description": "用户端登录、微信登录、开发调试 Token"},
+    {"name": "用户端商城", "description": "商品浏览、下单、支付、订单查询（移动端）"},
     {"name": "用户端内容", "description": "内容列表、详情、发布、编辑、点赞、评论、分享"},
     {"name": "用户端话题", "description": "用户端推荐话题和话题搜索"},
     {"name": "用户端位置", "description": "根据经纬度获取附近发布位置候选"},
@@ -65,7 +68,9 @@ app.add_middleware(
 app.include_router(address_router)
 app.include_router(admin_router)
 app.include_router(admin_points_router)
+app.include_router(admin_mall_router)
 app.include_router(auth_router)
+app.include_router(mall_router)
 app.include_router(points_router)
 app.include_router(posts_router)
 app.include_router(topics_router)

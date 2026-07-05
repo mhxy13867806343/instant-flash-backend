@@ -26,6 +26,13 @@ from app.schemas.comment import CommentOut
 from app.schemas.post import PostListResponse, PostOut
 from app.schemas.share import ShareOut
 from app.schemas.user import UserBindPhoneRequest, UserProfile, UserProfileUpdate
+from app.schemas.user_config import (
+    UserCustomConfigCreate,
+    UserCustomConfigListResponse,
+    UserCustomConfigOut,
+    UserCustomConfigUpdate,
+)
+from app.models.user_config import UserCustomConfig
 
 router = APIRouter(prefix="/api/user", tags=["用户端用户"])
 AVATAR_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "avatars"
@@ -341,3 +348,164 @@ def my_shares(
         .all()
     )
     return [share_out(share) for share in shares]
+
+
+# ---------------------------------------------------------------------------
+# 用户自定义配置（仅限移动端）
+# ---------------------------------------------------------------------------
+
+def _config_out(cfg: UserCustomConfig) -> UserCustomConfigOut:
+    return UserCustomConfigOut(
+        configId=cfg.config_id,
+        userId=cfg.user_id,
+        configKey=cfg.config_key,
+        configValue=cfg.config_value,
+        label=cfg.label,
+        remark=cfg.remark,
+        createTime=cfg.create_time,
+        updateTime=cfg.update_time,
+    )
+
+
+@router.post(
+    "/configs",
+    response_model=UserCustomConfigOut,
+    status_code=201,
+    summary="新增自定义配置",
+    description="移动端用户新增一条自定义配置（如主题色、页面装饰等）。configKey 在同一用户下须唯一，configValue 默认可为空，支持任意 JSON 类型。",
+)
+def create_user_config(
+    payload: UserCustomConfigCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> UserCustomConfigOut:
+    import uuid
+    existing = (
+        db.query(UserCustomConfig)
+        .filter(
+            UserCustomConfig.user_id == current_user.user_id,
+            UserCustomConfig.config_key == payload.config_key,
+        )
+        .first()
+    )
+    if existing is not None:
+        raise fail(status.HTTP_400_BAD_REQUEST, f"配置键 '{payload.config_key}' 已存在，请勿重复新增")
+
+    cfg = UserCustomConfig(
+        config_id=f"cfg_{uuid.uuid4().hex[:16]}",
+        user_id=current_user.user_id,
+        config_key=payload.config_key,
+        config_value=payload.config_value,
+        label=payload.label,
+        remark=payload.remark,
+    )
+    db.add(cfg)
+    db.commit()
+    db.refresh(cfg)
+    return _config_out(cfg)
+
+
+@router.get(
+    "/configs",
+    response_model=UserCustomConfigListResponse,
+    summary="查询自定义配置列表",
+    description="查询当前登录移动端用户的所有自定义配置，默认按创建时间升序排列，配置为空时返回空列表。",
+)
+def list_user_configs(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> UserCustomConfigListResponse:
+    cfgs = (
+        db.query(UserCustomConfig)
+        .filter(UserCustomConfig.user_id == current_user.user_id)
+        .order_by(UserCustomConfig.create_time.asc())
+        .all()
+    )
+    return UserCustomConfigListResponse(items=[_config_out(c) for c in cfgs], total=len(cfgs))
+
+
+@router.get(
+    "/configs/{config_id}",
+    response_model=UserCustomConfigOut,
+    summary="查询单条自定义配置",
+    description="根据 configId 查询当前用户的一条自定义配置详情，仅能查询自己的配置。",
+)
+def get_user_config(
+    config_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> UserCustomConfigOut:
+    cfg = (
+        db.query(UserCustomConfig)
+        .filter(
+            UserCustomConfig.config_id == config_id,
+            UserCustomConfig.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if cfg is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "配置不存在")
+    return _config_out(cfg)
+
+
+@router.put(
+    "/configs/{config_id}",
+    response_model=UserCustomConfigOut,
+    summary="修改自定义配置",
+    description="根据 configId 修改当前用户的自定义配置值、标签或备注，仅能修改自己的配置。",
+)
+def update_user_config(
+    config_id: str,
+    payload: UserCustomConfigUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> UserCustomConfigOut:
+    cfg = (
+        db.query(UserCustomConfig)
+        .filter(
+            UserCustomConfig.config_id == config_id,
+            UserCustomConfig.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if cfg is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "配置不存在")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        # 将 Pydantic 驼峰字段名映射到数据库列名
+        db_field = {
+            "config_value": "config_value",
+            "label": "label",
+            "remark": "remark",
+        }.get(field, field)
+        setattr(cfg, db_field, value)
+
+    db.commit()
+    db.refresh(cfg)
+    return _config_out(cfg)
+
+
+@router.delete(
+    "/configs/{config_id}",
+    summary="删除自定义配置",
+    description="根据 configId 删除当前用户的一条自定义配置，仅能删除自己的配置。",
+)
+def delete_user_config(
+    config_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    cfg = (
+        db.query(UserCustomConfig)
+        .filter(
+            UserCustomConfig.config_id == config_id,
+            UserCustomConfig.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if cfg is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "配置不存在")
+    db.delete(cfg)
+    db.commit()
+    return ok(message="删除成功")

@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import JSON
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base, TimestampMixin
+
+
+class MallSetting(TimestampMixin, Base):
+    """商城全局设置表（单行，id=1）。"""
+
+    __tablename__ = "mall_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # 积分开关：True = 仅积分支付，不允许价格支付
+    points_switch: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MallProduct(TimestampMixin, Base):
+    """商城商品表。"""
+
+    __tablename__ = "mall_products"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    product_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 支持富文本 HTML
+    # 商品图片列表，最多 9 张，JSON 数组存 URL
+    images: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )
+    cover_image: Mapped[str | None] = mapped_column(String(512), nullable=True)   # 封面图（可选）
+    cover_video: Mapped[str | None] = mapped_column(String(512), nullable=True)   # 封面视频（可选，与封面图二选一）
+    # 价格（单位：分）
+    original_price: Mapped[int] = mapped_column(Integer, nullable=False)           # 原价（分），> 0
+    current_price: Mapped[int] = mapped_column(Integer, nullable=False)            # 现价（分），> 0
+    points_cost: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # 积分兑换价，0=不支持积分
+    points_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 是否仅积分购买
+    stock: Mapped[int] = mapped_column(Integer, default=1, nullable=False)         # 库存 1~999
+    sold_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)    # 累计销量
+    # 状态：on_sale 上架 / off_shelf 下架 / sold_out 售罄
+    status: Mapped[str] = mapped_column(String(32), default="off_shelf", nullable=False, index=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MallOrder(TimestampMixin, Base):
+    """商城订单表。"""
+
+    __tablename__ = "mall_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    product_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # 下单时的快照，防止商品修改后历史订单数据错乱
+    product_title: Mapped[str] = mapped_column(String(128), nullable=False)
+    product_image: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    unit_price: Mapped[int] = mapped_column(Integer, default=0, nullable=False)    # 成交单价（分）
+    total_price: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # 总价（分）
+    points_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # 使用积分数
+    pay_type: Mapped[str | None] = mapped_column(String(32), nullable=True)        # wechat/alipay/points 等
+    pay_type_value: Mapped[str | None] = mapped_column(String(256), nullable=True) # 支付附加参数快照
+    # 订单状态：pending_pay / paid / shipped / completed / cancelled
+    status: Mapped[str] = mapped_column(String(32), default="pending_pay", nullable=False, index=True)
+    paid_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shipped_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cancelled_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 扩展字段
+    expire_at: Mapped[str | None] = mapped_column(String(32), nullable=True)       # 待支付超时时间（ISO字符串）
+    user_remark: Mapped[str | None] = mapped_column(String(256), nullable=True)    # 用户下单留言
+    receiver_name: Mapped[str | None] = mapped_column(String(64), nullable=True)   # 收件人姓名
+    receiver_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 收件人手机号
+    receiver_address: Mapped[str | None] = mapped_column(String(512), nullable=True) # 收件详细地址
+
+
+
+class MallPaymentMethod(TimestampMixin, Base):
+    """支付方式表，PC 端可自定义配置，默认预置微信和支付宝。"""
+
+    __tablename__ = "mall_payment_methods"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    method_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)              # 展示名称，如"微信支付"
+    logo: Mapped[str | None] = mapped_column(String(512), nullable=True)      # logo 图片 URL
+    type: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # 唯一标识，前端传此值
+    type_value: Mapped[str | None] = mapped_column(String(256), nullable=True) # 附加参数（商户号/AppID等）
+    status: Mapped[str] = mapped_column(String(32), default="enabled", nullable=False)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
