@@ -179,6 +179,13 @@ class MallProductOut(BaseModel):
     remark: str | None = Field(default=None)
     createTime: datetime = Field(title="创建时间")
     updateTime: datetime = Field(title="更新时间")
+    
+    # 互动属性拓展
+    isLiked: bool = Field(default=False, title="当前用户是否已点赞")
+    isFavorited: bool = Field(default=False, title="当前用户是否已收藏")
+    likesCount: int = Field(default=0, title="总点赞数")
+    favoritesCount: int = Field(default=0, title="总收藏数")
+    sharesCount: int = Field(default=0, title="总分享数")
 
 
 class MallProductListResponse(BaseModel):

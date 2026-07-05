@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
@@ -12,7 +13,7 @@ from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderCreate,
@@ -58,7 +59,30 @@ def _get_setting(db: Session) -> MallSetting:
     return setting
 
 
-def _product_out(p: MallProduct, points_switch: bool) -> MallProductOut:
+def _product_out(
+    db: Session,
+    p: MallProduct,
+    points_switch: bool,
+    user_id: str | None = None,
+) -> MallProductOut:
+    from sqlalchemy import func
+
+    likes_cnt = db.query(func.count(MallProductLike.id)).filter(MallProductLike.product_id == p.product_id).scalar() or 0
+    favs_cnt = db.query(func.count(MallProductFavorite.id)).filter(MallProductFavorite.product_id == p.product_id).scalar() or 0
+    shares_cnt = db.query(func.count(MallProductShare.id)).filter(MallProductShare.product_id == p.product_id).scalar() or 0
+
+    is_liked = False
+    is_favorited = False
+    if user_id:
+        is_liked = db.query(MallProductLike.id).filter(
+            MallProductLike.product_id == p.product_id,
+            MallProductLike.user_id == user_id
+        ).first() is not None
+        is_favorited = db.query(MallProductFavorite.id).filter(
+            MallProductFavorite.product_id == p.product_id,
+            MallProductFavorite.user_id == user_id
+        ).first() is not None
+
     return MallProductOut(
         productId=p.product_id,
         title=p.title,
@@ -69,7 +93,6 @@ def _product_out(p: MallProduct, points_switch: bool) -> MallProductOut:
         originalPrice=p.original_price,
         currentPrice=p.current_price,
         pointsCost=p.points_cost,
-        # 积分开关开启时，所有商品强制仅积分
         pointsOnly=True if points_switch else p.points_only,
         stock=p.stock,
         soldCount=p.sold_count,
@@ -78,6 +101,11 @@ def _product_out(p: MallProduct, points_switch: bool) -> MallProductOut:
         remark=p.remark,
         createTime=p.create_time,
         updateTime=p.update_time,
+        isLiked=is_liked,
+        isFavorited=is_favorited,
+        likesCount=likes_cnt,
+        favoritesCount=favs_cnt,
+        sharesCount=shares_cnt,
     )
 
 
@@ -150,7 +178,7 @@ def _auto_cancel_if_expired(db: Session, order: MallOrder) -> MallOrder:
 )
 def mobile_list_products(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user_required)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
     keyword: Annotated[str | None, Query(description="标题关键词")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -167,7 +195,7 @@ def mobile_list_products(
         .all()
     )
     return MallProductListResponse(
-        items=[_product_out(p, setting.points_switch) for p in products],
+        items=[_product_out(db, p, setting.points_switch, current_user.user_id) for p in products],
         total=total,
     )
 
@@ -186,7 +214,7 @@ def mobile_list_products(
 def mobile_get_product(
     product_id: Annotated[str, Path(description="商品业务 ID")],
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user_required)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> MallProductOut:
     p = db.query(MallProduct).filter(
         MallProduct.product_id == product_id,
@@ -195,7 +223,7 @@ def mobile_get_product(
     if p is None:
         raise fail(status.HTTP_404_NOT_FOUND, "商品不存在或已下架")
     setting = _get_setting(db)
-    return _product_out(p, setting.points_switch)
+    return _product_out(db, p, setting.points_switch, current_user.user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +887,176 @@ def mobile_append_comment(
     db.refresh(append)
 
     return ok(_append_out(append).model_dump(), "追加评价成功")
+
+
+# ---------------------------------------------------------------------------
+# 商品收藏、点赞、分享交互接口 (用户端)
+# ---------------------------------------------------------------------------
+
+class ShareLogPayload(BaseModel):
+    platform: str | None = Field(default=None, max_length=64, description="分享平台，如 wechat/alipay/QQ")
+
+
+@router.post(
+    "/products/{product_id}/like",
+    summary="点赞/取消点赞商品",
+    description="对商品进行点赞。如果已经点赞，则取消点赞；如果未点赞，则点赞商品（Toggle 逻辑）。",
+)
+def mobile_toggle_like_product(
+    product_id: Annotated[str, Path(description="商品业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    p = db.query(MallProduct).filter(
+        MallProduct.product_id == product_id,
+        MallProduct.status == "on_sale",
+    ).first()
+    if p is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "商品不存在或已下架")
+
+    # 查询是否已点赞
+    like = db.query(MallProductLike).filter(
+        MallProductLike.product_id == product_id,
+        MallProductLike.user_id == current_user.user_id
+    ).first()
+
+    from sqlalchemy import func
+    if like:
+        db.delete(like)
+        db.commit()
+        is_liked = False
+    else:
+        new_like = MallProductLike(user_id=current_user.user_id, product_id=product_id)
+        db.add(new_like)
+        db.commit()
+        is_liked = True
+
+    likes_count = db.query(func.count(MallProductLike.id)).filter(MallProductLike.product_id == product_id).scalar() or 0
+    return ok(
+        {
+            "isLiked": is_liked,
+            "likesCount": int(likes_count),
+        },
+        "操作成功"
+    )
+
+
+@router.post(
+    "/products/{product_id}/favorite",
+    summary="收藏/取消收藏商品",
+    description="收藏或取消收藏对应商品。如果已经收藏，则取消收藏；如果未收藏，则收藏商品（Toggle 逻辑）。",
+)
+def mobile_toggle_favorite_product(
+    product_id: Annotated[str, Path(description="商品业务 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    p = db.query(MallProduct).filter(
+        MallProduct.product_id == product_id,
+        MallProduct.status == "on_sale",
+    ).first()
+    if p is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "商品不存在或已下架")
+
+    # 查询是否已收藏
+    fav = db.query(MallProductFavorite).filter(
+        MallProductFavorite.product_id == product_id,
+        MallProductFavorite.user_id == current_user.user_id
+    ).first()
+
+    from sqlalchemy import func
+    if fav:
+        db.delete(fav)
+        db.commit()
+        is_favorited = False
+    else:
+        new_fav = MallProductFavorite(user_id=current_user.user_id, product_id=product_id)
+        db.add(new_fav)
+        db.commit()
+        is_favorited = True
+
+    favs_count = db.query(func.count(MallProductFavorite.id)).filter(MallProductFavorite.product_id == product_id).scalar() or 0
+    return ok(
+        {
+            "isFavorited": is_favorited,
+            "favoritesCount": int(favs_count),
+        },
+        "操作成功"
+    )
+
+
+@router.post(
+    "/products/{product_id}/share",
+    summary="记录商品分享",
+    description="记录一次商品分享的操作行为，增加累计分享次数统计。",
+)
+def mobile_log_product_share(
+    product_id: Annotated[str, Path(description="商品业务 ID")],
+    payload: ShareLogPayload,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    p = db.query(MallProduct).filter(
+        MallProduct.product_id == product_id,
+        MallProduct.status == "on_sale",
+    ).first()
+    if p is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "商品不存在或已下架")
+
+    new_share = MallProductShare(
+        user_id=current_user.user_id,
+        product_id=product_id,
+        platform=payload.platform,
+    )
+    db.add(new_share)
+    db.commit()
+
+    from sqlalchemy import func
+    shares_count = db.query(func.count(MallProductShare.id)).filter(MallProductShare.product_id == product_id).scalar() or 0
+    return ok(
+        {
+            "sharesCount": int(shares_count),
+        },
+        "分享记录成功"
+    )
+
+
+@router.get(
+    "/products/favorites",
+    response_model=MallProductListResponse,
+    summary="我的收藏商品列表",
+    description="分页获取当前登录用户收藏的所有商品列表数据。",
+)
+def mobile_list_favorited_products(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MallProductListResponse:
+    q = db.query(MallProductFavorite).filter(MallProductFavorite.user_id == current_user.user_id)
+    total = q.count()
+    favs = (
+        q.order_by(MallProductFavorite.create_time.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    product_ids = [f.product_id for f in favs]
+    
+    if not product_ids:
+        return MallProductListResponse(items=[], total=0)
+
+    # 获取关联的商品并按收藏时间排序
+    products = db.query(MallProduct).filter(MallProduct.product_id.in_(product_ids)).all()
+    prod_map = {p.product_id: p for p in products}
+    ordered_products = [prod_map[pid] for pid in product_ids if pid in prod_map]
+
+    setting = _get_setting(db)
+    return MallProductListResponse(
+        items=[_product_out(db, p, setting.points_switch, current_user.user_id) for p in ordered_products],
+        total=total,
+    )
+
 
 
 

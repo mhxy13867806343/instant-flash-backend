@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Integer, String, Text, ForeignKey
+from sqlalchemy import Boolean, Integer, String, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -154,5 +154,57 @@ class MallProductCommentAppend(TimestampMixin, Base):
         "MallProductComment",
         back_populates="appends",
     )
+
+
+class MallProductLike(TimestampMixin, Base):
+    """商品点赞表。"""
+
+    __tablename__ = "mall_product_likes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mall_products.product_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "product_id", name="uq_mall_product_likes_user_product"),
+    )
+
+
+class MallProductFavorite(TimestampMixin, Base):
+    """商品收藏表。"""
+
+    __tablename__ = "mall_product_favorites"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mall_products.product_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "product_id", name="uq_mall_product_favorites_user_product"),
+    )
+
+
+class MallProductShare(TimestampMixin, Base):
+    """商品分享记录表。"""
+
+    __tablename__ = "mall_product_shares"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=True
+    )  # 允许未登录匿名分享
+    product_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mall_products.product_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    platform: Mapped[str | None] = mapped_column(String(64), nullable=True)  # wechat/alipay/moments等
+
 
 

@@ -13,7 +13,7 @@ from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
 from app.db.session import get_db
-from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend
+from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare
 from app.models.user import User
 from app.schemas.mall import (
     MallOrderListResponse,
@@ -53,7 +53,11 @@ def _ensure_mall_setting(db: Session) -> MallSetting:
     return setting
 
 
-def _product_out(p: MallProduct) -> MallProductOut:
+def _product_out(db: Session, p: MallProduct) -> MallProductOut:
+    likes_cnt = db.query(func.count(MallProductLike.id)).filter(MallProductLike.product_id == p.product_id).scalar() or 0
+    favs_cnt = db.query(func.count(MallProductFavorite.id)).filter(MallProductFavorite.product_id == p.product_id).scalar() or 0
+    shares_cnt = db.query(func.count(MallProductShare.id)).filter(MallProductShare.product_id == p.product_id).scalar() or 0
+
     return MallProductOut(
         productId=p.product_id,
         title=p.title,
@@ -72,6 +76,9 @@ def _product_out(p: MallProduct) -> MallProductOut:
         remark=p.remark,
         createTime=p.create_time,
         updateTime=p.update_time,
+        likesCount=likes_cnt,
+        favoritesCount=favs_cnt,
+        sharesCount=shares_cnt,
     )
 
 
@@ -210,7 +217,7 @@ def create_product(
     db.add(p)
     db.commit()
     db.refresh(p)
-    return ok(_product_out(p).model_dump(), "商品创建成功")
+    return ok(_product_out(db, p).model_dump(), "商品创建成功")
 
 
 @router.get(
@@ -238,7 +245,7 @@ def list_products(
         .limit(limit)
         .all()
     )
-    return ok({"list": [_product_out(p).model_dump() for p in products], "total": total})
+    return ok({"list": [_product_out(db, p).model_dump() for p in products], "total": total})
 
 
 @router.get(
@@ -254,7 +261,7 @@ def get_product(
     p = db.query(MallProduct).filter(MallProduct.product_id == product_id).first()
     if p is None:
         raise fail(status.HTTP_404_NOT_FOUND, "商品不存在")
-    return ok(_product_out(p).model_dump())
+    return ok(_product_out(db, p).model_dump())
 
 
 @router.put(
@@ -287,7 +294,7 @@ def update_product(
 
     db.commit()
     db.refresh(p)
-    return ok(_product_out(p).model_dump(), "商品已更新")
+    return ok(_product_out(db, p).model_dump(), "商品已更新")
 
 
 @router.delete(
