@@ -180,6 +180,8 @@ def mobile_list_products(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
     keyword: Annotated[str | None, Query(description="标题关键词")] = None,
+    sort_price: Annotated[str | None, Query(alias="sortPrice", pattern="^(asc|desc)$", description="价格排序：asc 升序 / desc 降序")] = None,
+    sort_time: Annotated[str | None, Query(alias="sortTime", pattern="^(asc|desc)$", description="时间排序：asc 升序 / desc 降序")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> MallProductListResponse:
@@ -188,8 +190,23 @@ def mobile_list_products(
     if keyword:
         q = q.filter(MallProduct.title.ilike(f"%{keyword}%"))
     total = q.count()
+
+    order_clauses = []
+    if sort_price == "asc":
+        order_clauses.append(MallProduct.price.asc())
+    elif sort_price == "desc":
+        order_clauses.append(MallProduct.price.desc())
+
+    if sort_time == "asc":
+        order_clauses.append(MallProduct.create_time.asc())
+    elif sort_time == "desc":
+        order_clauses.append(MallProduct.create_time.desc())
+
+    if not order_clauses:
+        order_clauses = [MallProduct.sort.asc(), MallProduct.create_time.desc()]
+
     products = (
-        q.order_by(MallProduct.sort.asc(), MallProduct.create_time.desc())
+        q.order_by(*order_clauses)
         .offset((page - 1) * limit)
         .limit(limit)
         .all()
@@ -198,6 +215,7 @@ def mobile_list_products(
         items=[_product_out(db, p, setting.points_switch, current_user.user_id) for p in products],
         total=total,
     )
+
 
 
 @router.get(
