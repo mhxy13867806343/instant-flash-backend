@@ -34,6 +34,7 @@ from app.schemas.user import (
     ThirdPartyBindingOut,
     BatchFollowRequest,
     FollowedUserOut,
+    UserSearchOut,
 )
 from app.schemas.user_config import (
     UserCustomConfigCreate,
@@ -743,5 +744,64 @@ def list_followers(
         )
         result.append(out)
     return result
+
+
+@router.get(
+    "/search",
+    response_model=list[UserSearchOut],
+    summary="搜索用户列表",
+    description="通过昵称、手机号或用户ID搜索激活状态的用户，并返回与其的社交关注关系状态（已自动剔除当前用户）。",
+)
+def search_users(
+    keyword: Annotated[str, Query(min_length=1, description="搜索关键词：昵称、手机号或用户ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[UserSearchOut]:
+    # Exclude current user from results
+    query = db.query(User).filter(
+        User.user_id != current_user.user_id,
+        User.is_active.is_(True)
+    ).filter(
+        or_(
+            User.nickname.ilike(f"%{keyword}%"),
+            User.phone.ilike(f"%{keyword}%"),
+            User.new_phone.ilike(f"%{keyword}%"),
+            User.user_id.ilike(f"%{keyword}%")
+        )
+    )
+
+    users = query.offset((page - 1) * limit).limit(limit).all()
+
+    result = []
+    for u in users:
+        # Calculate flags
+        is_following = db.query(UserFollow).filter(
+            UserFollow.user_id == current_user.user_id,
+            UserFollow.following_id == u.user_id
+        ).first() is not None
+
+        is_follower = db.query(UserFollow).filter(
+            UserFollow.user_id == u.user_id,
+            UserFollow.following_id == current_user.user_id
+        ).first() is not None
+
+        is_mutual = is_following and is_follower
+
+        result.append(
+            UserSearchOut(
+                userId=u.user_id,
+                nickname=u.nickname,
+                avatar=u.avatar,
+                gender=u.gender,
+                bio=u.bio,
+                isFollowing=is_following,
+                isFollower=is_follower,
+                isMutual=is_mutual
+            )
+        )
+    return result
+
 
 

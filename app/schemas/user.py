@@ -137,3 +137,17 @@ class FollowedUserOut(BaseModel):
     createTime: datetime
 
 
+class UserSearchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    userId: str
+    nickname: str | None = None
+    avatar: str | None = None
+    gender: str | None = None
+    bio: str | None = None
+    isFollowing: bool = False
+    isFollower: bool = False
+    isMutual: bool = False
+
+
+
