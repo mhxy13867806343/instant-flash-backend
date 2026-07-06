@@ -24,7 +24,16 @@ from app.db.session import get_db
 from app.models.comment import Comment
 from app.models.message import Message
 from app.models.user import User, UserThirdPartyBinding
-from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse, ThirdPartyLoginRequest, ThirdPartyLoginResponse
+from app.schemas.auth import (
+    DevTokenRequest,
+    TokenResponse,
+    WxLoginRequest,
+    WxLoginResponse,
+    ThirdPartyLoginRequest,
+    ThirdPartyLoginResponse,
+    PhoneLoginRequest,
+    PhoneLoginResponse,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
 
@@ -358,4 +367,87 @@ def third_party_login(
             "signature": user.bio,
         },
     )
+
+
+@router.post(
+    "/phone-login",
+    response_model=PhoneLoginResponse,
+    summary="手机号验证码登录/注册",
+    description=(
+        "用户端手机号一键登录接口。\n"
+        "- 若该手机号在系统内已绑定账号，则直接完成验证并登录。\n"
+        "- 若该手机号未对应任何账号，系统会自动为其注册新用户并分配 user_id（首次登录即自动注册）。\n"
+        "- 短信验证码在测试环境下固定为 123456。"
+    ),
+)
+def phone_login(
+    payload: PhoneLoginRequest,
+    db: Session = Depends(get_db),
+) -> PhoneLoginResponse:
+    # 1. 验证验证码
+    if payload.code != "123456":
+        raise fail(status.HTTP_400_BAD_REQUEST, "验证码错误")
+
+    phone = normalize_phone(payload.phone)
+    if not phone:
+        raise fail(status.HTTP_400_BAD_REQUEST, "手机号格式不正确")
+
+    # 2. 匹配已有账号
+    lookup_conditions = phone_login_conditions(phone)
+    matched_users = db.query(User).filter(or_(*lookup_conditions)).all()
+    user = resolve_phone_login_user(matched_users, phone)
+
+    is_new_user = False
+    if user is None:
+        # 新用户，自动注册
+        is_new_user = True
+        target_user_id = mobile_user_id(phone)
+        user = User(
+            user_id=target_user_id or new_business_id("usr"),
+            phone=phone,
+            client_type=normalize_client_type(payload.client_type),
+            client_subtype=normalize_client_subtype(payload.client_subtype),
+        )
+        db.add(user)
+        db.flush()
+    else:
+        # 已有用户登录，检查是否被禁用
+        ensure_user_can_login(user)
+
+        # 更新登录设备信息
+        if payload.client_type:
+            user.client_type = normalize_client_type(payload.client_type)
+        if payload.client_subtype:
+            user.client_subtype = normalize_client_subtype(payload.client_subtype)
+
+    # 3. 登录与奖励记录更新
+    user.last_time = utc_now()
+    if is_new_user:
+        grant_registration(db, user)
+    grant_daily_login(db, user)
+    
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(user.user_id)
+    return PhoneLoginResponse(
+        accessToken=token,
+        token=token,
+        tokenType="Bearer",
+        isNewUser=is_new_user,
+        user={
+            "userId": user.user_id,
+            "openid": user.openid,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "phone": user.phone,
+            "newPhone": user.new_phone,
+            "clientType": user.client_type,
+            "clientSubtype": user.client_subtype,
+            "gender": user.gender,
+            "bio": user.bio,
+            "signature": user.bio,
+        },
+    )
+
 

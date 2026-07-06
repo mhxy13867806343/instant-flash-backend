@@ -130,3 +130,40 @@ class ThirdPartyLoginResponse(BaseModel):
     isNewUser: bool = Field(title="是否为新用户", description="首次登录自动注册成功返回 true")
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
 
+
+class PhoneLoginRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    phone: str = Field(..., max_length=32, title="手机号", description="登录用户的手机号")
+    code: str = Field(
+        ...,
+        validation_alias=AliasChoices("code", "verifyCode", "verificationCode", "smsCode"),
+        max_length=16,
+        title="短信验证码",
+        description="手机号验证码，测试环境固定 123456",
+    )
+    client_type: str | None = Field(
+        default=None,
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default=None,
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+    )
+
+
+class PhoneLoginResponse(BaseModel):
+    accessToken: str = Field(title="访问令牌", description="Bearer Token")
+    token: str = Field(title="兼容 Token", description="值同 accessToken")
+    tokenType: str = Field(default="Bearer", title="令牌类型")
+    isNewUser: bool = Field(title="是否为新用户", description="首次登录自动注册成功返回 true")
+    user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
+
+

@@ -160,12 +160,13 @@ def bind_phone(
         raise fail(status.HTTP_400_BAD_REQUEST, "验证码错误")
 
     current_phone = current_user.phone or phone_from_user_id(current_user.user_id)
-    if not current_phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "当前账号未绑定手机号，不能换绑")
-    if current_user.new_phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "已绑定新手机号，不能重复绑定")
-    if new_phone == current_phone:
-        raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能和当前手机号相同")
+    is_first_bind = current_phone is None
+
+    if not is_first_bind:
+        if current_user.new_phone:
+            raise fail(status.HTTP_400_BAD_REQUEST, "已绑定新手机号，不能重复绑定")
+        if new_phone == current_phone:
+            raise fail(status.HTTP_400_BAD_REQUEST, "新手机号不能和当前手机号相同")
 
     target_user_id = mobile_user_id(new_phone)
     existing = (
@@ -177,11 +178,11 @@ def bind_phone(
         raise fail(status.HTTP_400_BAD_REQUEST, "该手机号已绑定其他用户")
 
     user = current_user
-    if current_phone:
+    if is_first_bind:
+        user.phone = new_phone
+    else:
         user.phone = current_phone
         user.new_phone = new_phone
-    else:
-        user.phone = new_phone
     user.last_time = utc_now()
     db.commit()
     db.refresh(user)
