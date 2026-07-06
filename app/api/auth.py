@@ -23,8 +23,8 @@ from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
 from app.models.message import Message
-from app.models.user import User
-from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse
+from app.models.user import User, UserThirdPartyBinding
+from app.schemas.auth import DevTokenRequest, TokenResponse, WxLoginRequest, WxLoginResponse, ThirdPartyLoginRequest, ThirdPartyLoginResponse
 
 router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
 
@@ -249,3 +249,113 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
             "signature": user.bio,
         },
     )
+
+
+@router.post(
+    "/third-party-login",
+    response_model=ThirdPartyLoginResponse,
+    summary="第三方账号登录/注册",
+    description=(
+        "第三方账号快捷登录接口。PC/移动端公用。\n"
+        "- 若账号已绑定过用户，则直接校验成功并完成登录。\n"
+        "- 若账号未绑定过任何用户，系统会自动生成新用户并建立绑定关系（首次登录即自动注册）。"
+    ),
+)
+def third_party_login(
+    payload: ThirdPartyLoginRequest,
+    db: Session = Depends(get_db),
+) -> ThirdPartyLoginResponse:
+    # 1. 查找是否存在对应平台与 openid 的绑定关系
+    binding = db.query(UserThirdPartyBinding).filter(
+        UserThirdPartyBinding.platform == payload.platform,
+        UserThirdPartyBinding.openid == payload.openid,
+    ).first()
+
+    is_new_user = False
+    if binding is not None:
+        # 已绑定，获取关联用户
+        user = db.query(User).filter(User.user_id == binding.user_id).first()
+        if user is None:
+            # 异常情况：绑定关系存在但用户已被物理删除。此时当做新用户重新绑定处理。
+            db.delete(binding)
+            db.flush()
+            binding = None
+
+    if binding is None:
+        # 未绑定任何用户，自动注册新用户
+        is_new_user = True
+        user_id = new_business_id("usr")
+        user = User(
+            user_id=user_id,
+            nickname=payload.nickname,
+            avatar=payload.avatar,
+            gender=payload.gender,
+            bio=payload.bio,
+            province=payload.province,
+            city=payload.city,
+            district=payload.district,
+            client_type=normalize_client_type(payload.client_type),
+            client_subtype=normalize_client_subtype(payload.client_subtype),
+        )
+        db.add(user)
+        db.flush()
+
+        # 建立第三方绑定关系
+        from app.api.utils import new_business_id as make_binding_id
+        new_bind = UserThirdPartyBinding(
+            binding_id=make_binding_id("tpb"),
+            user_id=user_id,
+            platform=payload.platform,
+            openid=payload.openid,
+            unionid=payload.unionid,
+            nickname=payload.nickname,
+            avatar=payload.avatar,
+        )
+        db.add(new_bind)
+        db.flush()
+    else:
+        # 已绑定，做常规登录处理。如果前端传入了新信息，更新快照和用户信息
+        ensure_user_can_login(user)
+        
+        # 视情况更新 unionid
+        if payload.unionid and not binding.unionid:
+            binding.unionid = payload.unionid
+            
+        # 前端如果有传递新资料，更新绑定关系和用户基础信息的昵称/头像
+        if payload.nickname:
+            binding.nickname = payload.nickname
+            user.nickname = user.nickname or payload.nickname
+        if payload.avatar:
+            binding.avatar = payload.avatar
+            user.avatar = user.avatar or payload.avatar
+
+    # 2. 积分与登录记录处理
+    user.last_time = utc_now()
+    if is_new_user:
+        grant_registration(db, user)
+    grant_daily_login(db, user)
+    
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(user.user_id)
+    return ThirdPartyLoginResponse(
+        accessToken=token,
+        token=token,
+        tokenType="Bearer",
+        isNewUser=is_new_user,
+        user={
+            "userId": user.user_id,
+            "openid": user.openid,  # 保留旧的默认 openid (若有)
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "phone": user.phone,
+            "newPhone": user.new_phone,
+            "clientType": user.client_type,
+            "clientSubtype": user.client_subtype,
+            "gender": user.gender,
+            "bio": user.bio,
+            "signature": user.bio,
+        },
+    )
+

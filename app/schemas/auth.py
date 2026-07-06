@@ -86,3 +86,47 @@ class WxLoginResponse(BaseModel):
     token: str = Field(title="兼容 Token", description="兼容前端读取的 token 字段，值同 accessToken")
     tokenType: str = Field(default="Bearer", title="令牌类型", description="固定为 Bearer")
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
+
+
+class ThirdPartyLoginRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    platform: str = Field(
+        ...,
+        pattern="^(wechat|qq|alipay|[a-zA-Z0-9_-]{2,32})$",
+        description="第三方平台标识，例如 wechat / qq / alipay，或自定义平台",
+    )
+    openid: str = Field(..., min_length=1, max_length=128, description="第三方平台用户标识 openid")
+    unionid: str | None = Field(default=None, max_length=128, description="可选第三方平台统一标识 unionid")
+    nickname: str | None = Field(default=None, max_length=64, description="第三方账户昵称，注册时作为初始昵称")
+    avatar: str | None = Field(default=None, max_length=512, description="第三方账户头像，注册时作为初始头像")
+    gender: str | None = Field(default=None, max_length=16, description="性别")
+    bio: str | None = Field(default=None, max_length=300, description="个人签名")
+    province: str | None = Field(default=None, max_length=64, description="所在省份")
+    city: str | None = Field(default=None, max_length=64, description="所在城市")
+    district: str | None = Field(default=None, max_length=64, description="所在区县")
+    client_type: str | None = Field(
+        default=None,
+        alias="clientType",
+        validation_alias=AliasChoices("clientType", "client_type", "platform", "appPlatform"),
+        max_length=32,
+        title="移动端类型",
+        description="移动端来源类型：android、ios、harmonyos、miniprogram、h5",
+    )
+    client_subtype: str | None = Field(
+        default=None,
+        alias="clientSubtype",
+        validation_alias=AliasChoices("clientSubtype", "client_subtype", "miniProgramType", "mpType"),
+        max_length=64,
+        title="小程序类型",
+        description="当 clientType 为 miniprogram 时可传：wechat、alipay、douyin、qq、baidu 等",
+    )
+
+
+class ThirdPartyLoginResponse(BaseModel):
+    accessToken: str = Field(title="访问令牌", description="Bearer Token")
+    token: str = Field(title="兼容 Token", description="兼容前端读取的 token 字段，值同 accessToken")
+    tokenType: str = Field(default="Bearer", title="令牌类型")
+    isNewUser: bool = Field(title="是否为新用户", description="首次登录自动注册成功返回 true")
+    user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
+
