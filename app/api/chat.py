@@ -34,6 +34,7 @@ from app.schemas.chat import (
     MessageForward,
     MessageFavoriteOut,
     MessageRecall,
+    JoinByLinkPayload,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["聊天系统"])
@@ -1007,3 +1008,142 @@ def list_group_messages(
             out.atUserIds = [uid.strip() for uid in m.at_user_ids.split(",") if uid.strip()]
         result.append(out)
     return result
+
+
+# ===================================================================
+#  八、群分享链接邀请进群
+# ===================================================================
+
+@router.post(
+    "/groups/{group_id}/invite-link",
+    summary="生成群邀请分享链接/Token",
+    description="生成一个用于邀请人进群的加密 Token，默认 7 天后失效。",
+)
+def generate_group_invite_link(
+    group_id: Annotated[str, Path(description="群 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    expire_days: Annotated[int, Query(ge=1, le=30)] = 7,
+) -> dict[str, Any]:
+    from jose import jwt
+    from datetime import datetime, timezone, timedelta
+    from app.core.config import settings
+
+    # 确认群存在且活跃
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "群聊不存在或已解散")
+
+    # 确认当前用户是群成员
+    member = db.query(ChatGroupMember).filter(
+        ChatGroupMember.group_id == group_id,
+        ChatGroupMember.user_id == current_user.user_id,
+    ).first()
+    if member is None:
+        raise fail(status.HTTP_403_FORBIDDEN, "你不是该群的成员，无法生成邀请链接")
+
+    expire = datetime.now(timezone.utc) + timedelta(days=expire_days)
+    payload = {
+        "group_id": group_id,
+        "inviter_id": current_user.user_id,
+        "exp": expire,
+        "typ": "group_invite"
+    }
+    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+    # 组装一个可用的跳转 URL，这里返回相对路径，前端可拼接成完整地址
+    invite_url = f"/api/chat/groups/join-by-link?token={token}"
+
+    return ok({
+        "token": token,
+        "inviteUrl": invite_url,
+        "expireTime": expire.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "groupName": group.name,
+        "groupAvatar": group.avatar,
+    }, "生成群邀请链接成功")
+
+
+@router.post(
+    "/groups/join-by-link",
+    summary="通过分享链接/Token 加入群聊",
+    description="解析加密 Token，校验时效性，加入对应群聊并实时推送通知给群内在线成员。",
+)
+async def join_group_by_link(
+    payload: JoinByLinkPayload,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    from jose import jwt, JWTError
+    from app.core.config import settings
+
+    # 1. 解析校验 Token
+    try:
+        data = jwt.decode(payload.token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        if data.get("typ") != "group_invite":
+            raise fail(status.HTTP_400_BAD_REQUEST, "无效的群邀请 Token")
+        group_id = data.get("group_id")
+        inviter_id = data.get("inviter_id")
+    except JWTError:
+        raise fail(status.HTTP_400_BAD_REQUEST, "群邀请已过期或无效")
+
+    if not group_id or not inviter_id:
+        raise fail(status.HTTP_400_BAD_REQUEST, "无效的群邀请数据")
+
+    # 2. 校验群状态
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "要加入的群聊不存在或已解散")
+
+    # 3. 检查是否已经是群成员
+    exists = db.query(ChatGroupMember).filter(
+        ChatGroupMember.group_id == group_id,
+        ChatGroupMember.user_id == current_user.user_id,
+    ).first()
+    if exists:
+        raise fail(status.HTTP_400_BAD_REQUEST, "你已经是该群的成员了")
+
+    # 4. 检查人数上限
+    if group.member_count >= group.max_members:
+        raise fail(status.HTTP_400_BAD_REQUEST, "该群聊人数已达上限")
+
+    # 5. 查询邀请者信息（系统通知显示需要）
+    inviter = db.query(User).filter(User.user_id == inviter_id).first()
+    inviter_name = (inviter.nickname if inviter else inviter_id) or inviter_id
+
+    # 6. 新增群成员
+    new_member = ChatGroupMember(
+        group_id=group_id,
+        user_id=current_user.user_id,
+        role="member",
+    )
+    db.add(new_member)
+    group.member_count += 1
+
+    # 7. 生成系统群聊消息
+    sys_msg = ChatGroupMessage(
+        message_id=new_business_id("grpm"),
+        group_id=group_id,
+        sender_id=current_user.user_id,
+        content=f"{current_user.nickname or current_user.user_id} 通过 {inviter_name} 分享的链接加入了群聊",
+        msg_type="system",
+        is_recalled=False,
+    )
+    db.add(sys_msg)
+    db.commit()
+
+    # 8. WebSocket 广播群成员变更给群内所有在线成员
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_members_updated",
+        {"groupId": group_id, "addedUserIds": [current_user.user_id], "viaLink": True}
+    )
+
+    return ok({
+        "groupId": group_id,
+        "groupName": group.name,
+        "avatar": group.avatar,
+        "memberCount": group.member_count,
+    }, "加入群聊成功")
+

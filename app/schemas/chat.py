@@ -159,3 +159,8 @@ class MessageFavoriteOut(BaseModel):
 
 class MessageRecall(BaseModel):
     messageType: str = Field(..., pattern="^(private|group)$", description="消息类型：private 私聊 / group 群聊")
+
+
+class JoinByLinkPayload(BaseModel):
+    token: str = Field(..., description="邀请链接的加密 Token")
+
