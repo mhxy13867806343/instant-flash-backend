@@ -132,6 +132,8 @@ class ChatMessageFavorite(TimestampMixin, Base):
     source_message_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     msg_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), default="text", server_default="text", nullable=False)
     media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     sender_id: Mapped[str] = mapped_column(String(64), nullable=False)
     sender_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+

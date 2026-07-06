@@ -151,10 +151,12 @@ class MessageFavoriteOut(BaseModel):
     sourceMessageId: str
     content: str
     msgType: str
+    category: str = "text"
     mediaUrl: str | None = None
     senderId: str
     senderName: str | None = None
     createTime: datetime
+
 
 
 class MessageRecall(BaseModel):

@@ -21,7 +21,7 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.user import User, UserThirdPartyBinding
+from app.models.user import User, UserThirdPartyBinding, UserFollow
 from app.schemas.comment import CommentOut
 from app.schemas.post import PostListResponse, PostOut
 from app.schemas.share import ShareOut
@@ -32,6 +32,8 @@ from app.schemas.user import (
     ThirdPartyBindPayload,
     ThirdPartyUnbindPayload,
     ThirdPartyBindingOut,
+    BatchFollowRequest,
+    FollowedUserOut,
 )
 from app.schemas.user_config import (
     UserCustomConfigCreate,
@@ -607,4 +609,139 @@ def unbind_third_party(
     db.delete(binding)
     db.commit()
     return ok(message=f"成功解绑该平台({payload.platform})的第三方账号")
+
+
+# ---------------------------------------------------------------------------
+# 用户关注粉丝关系 (Follow / Followers)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/relation/follow",
+    summary="关注用户（支持批量）",
+    description="关注一个或多个用户。已关注的用户会自动忽略，防止重复创建。",
+)
+def follow_users(
+    payload: BatchFollowRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    from app.api.utils import new_business_id
+
+    added_count = 0
+    for uid in payload.followingIds:
+        if uid == current_user.user_id:
+            continue
+        # Verify target user exists
+        target = db.query(User).filter(User.user_id == uid, User.is_active.is_(True)).first()
+        if not target:
+            continue
+        # Check if already followed
+        exists = db.query(UserFollow).filter(
+            UserFollow.user_id == current_user.user_id,
+            UserFollow.following_id == uid,
+        ).first()
+        if exists:
+            continue
+        # Follow
+        follow = UserFollow(
+            follow_id=new_business_id("uf"),
+            user_id=current_user.user_id,
+            following_id=uid,
+        )
+        db.add(follow)
+        added_count += 1
+
+    db.commit()
+    return ok({"addedCount": added_count}, f"成功关注 {added_count} 个用户")
+
+
+@router.post(
+    "/relation/unfollow",
+    summary="取消关注（支持批量）",
+    description="取消关注一个或多个用户。",
+)
+def unfollow_users(
+    payload: BatchFollowRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    removed_count = 0
+    if payload.followingIds:
+        removed = db.query(UserFollow).filter(
+            UserFollow.user_id == current_user.user_id,
+            UserFollow.following_id.in_(payload.followingIds),
+        ).delete(synchronize_session=False)
+        removed_count = removed
+
+    db.commit()
+    return ok({"removedCount": removed_count}, f"成功取消关注 {removed_count} 个用户")
+
+
+@router.get(
+    "/relation/followings",
+    response_model=list[FollowedUserOut],
+    summary="我关注的用户列表（分页）",
+)
+def list_followings(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[FollowedUserOut]:
+    sub = db.query(UserFollow).filter(
+        UserFollow.user_id == current_user.user_id
+    ).order_by(UserFollow.create_time.desc()).offset((page - 1) * limit).limit(limit).subquery()
+
+    # Query details
+    rows = db.query(User, sub.c.create_time).join(
+        sub, User.user_id == sub.c.following_id
+    ).all()
+
+    result = []
+    for user, ctime in rows:
+        out = FollowedUserOut(
+            userId=user.user_id,
+            nickname=user.nickname,
+            avatar=user.avatar,
+            gender=user.gender,
+            bio=user.bio,
+            createTime=ctime,
+        )
+        result.append(out)
+    return result
+
+
+@router.get(
+    "/relation/followers",
+    response_model=list[FollowedUserOut],
+    summary="我的粉丝列表（分页）",
+)
+def list_followers(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[FollowedUserOut]:
+    sub = db.query(UserFollow).filter(
+        UserFollow.following_id == current_user.user_id
+    ).order_by(UserFollow.create_time.desc()).offset((page - 1) * limit).limit(limit).subquery()
+
+    # Query details
+    rows = db.query(User, sub.c.create_time).join(
+        sub, User.user_id == sub.c.user_id
+    ).all()
+
+    result = []
+    for user, ctime in rows:
+        out = FollowedUserOut(
+            userId=user.user_id,
+            nickname=user.nickname,
+            avatar=user.avatar,
+            gender=user.gender,
+            bio=user.bio,
+            createTime=ctime,
+        )
+        result.append(out)
+    return result
+
 

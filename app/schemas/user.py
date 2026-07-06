@@ -121,3 +121,19 @@ class ThirdPartyBindingOut(BaseModel):
     avatar: str | None = None
     createTime: datetime
 
+
+class BatchFollowRequest(BaseModel):
+    followingIds: list[str] = Field(..., min_items=1, max_items=100, description="批量关注/取消关注的用户 ID 列表")
+
+
+class FollowedUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    userId: str
+    nickname: str | None = None
+    avatar: str | None = None
+    gender: str | None = None
+    bio: str | None = None
+    createTime: datetime
+
+

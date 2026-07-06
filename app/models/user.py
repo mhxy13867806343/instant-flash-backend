@@ -60,3 +60,29 @@ class UserThirdPartyBinding(TimestampMixin, Base):
         UniqueConstraint("platform", "openid", name="uq_user_third_party_platform_openid"),
         UniqueConstraint("user_id", "platform", name="uq_user_third_party_user_platform"),
     )
+
+
+class UserFollow(TimestampMixin, Base):
+    """用户关注粉丝关系表。"""
+
+    __tablename__ = "user_follows"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    follow_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    following_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "following_id", name="uq_user_follows_user_following"),
+    )
+

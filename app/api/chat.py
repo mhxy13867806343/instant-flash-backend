@@ -20,7 +20,7 @@ from app.models.chat import (
     ChatGroupMessage,
     ChatMessageFavorite,
 )
-from app.models.user import User
+from app.models.user import User, UserFollow
 from app.schemas.chat import (
     PrivateMessageCreate,
     PrivateMessageOut,
@@ -101,6 +101,26 @@ async def send_private_message(
         receiver_id = session.user_one_id
     else:
         raise fail(status.HTTP_403_FORBIDDEN, "无权在当前会话发消息")
+
+    # 陌生人限制校验
+    is_following = db.query(UserFollow).filter(
+        UserFollow.user_id == current_user.user_id,
+        UserFollow.following_id == receiver_id,
+    ).first() is not None
+    is_followed = db.query(UserFollow).filter(
+        UserFollow.user_id == receiver_id,
+        UserFollow.following_id == current_user.user_id,
+    ).first() is not None
+
+    if not is_following and not is_followed:
+        # 陌生人关系，校验发送数量
+        sent_count = db.query(GlobalChatMessage).filter(
+            GlobalChatMessage.session_id == payload.sessionId,
+            GlobalChatMessage.sender_id == current_user.user_id,
+            GlobalChatMessage.is_recalled.is_(False),
+        ).count()
+        if sent_count >= 1:
+            raise fail(status.HTTP_400_BAD_REQUEST, "对方与您并非关注/粉丝关系，陌生人私聊最多只能发送一条消息")
 
     msg = GlobalChatMessage(
         message_id=new_business_id("gmsg"),
@@ -382,13 +402,14 @@ async def forward_messages(
 @router.post(
     "/messages/{message_id}/favorite",
     summary="收藏消息",
-    description="将一条私聊或群聊消息加入收藏列表。",
+    description="将一条私聊或群聊消息加入收藏列表，支持分类归档，表情最多收藏 5024 个。",
 )
 def favorite_message(
     message_id: Annotated[str, Path(description="消息 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
     source_type: Annotated[str, Query(alias="sourceType", pattern="^(private|group)$")] = "private",
+    category: Annotated[str, Query(pattern="^(text|image|video|file|emoji|link|other)$")] = "text",
 ) -> dict[str, Any]:
     if source_type == "private":
         msg = db.query(GlobalChatMessage).filter(GlobalChatMessage.message_id == message_id).first()
@@ -405,6 +426,15 @@ def favorite_message(
     if exists:
         raise fail(status.HTTP_400_BAD_REQUEST, "该消息已收藏")
 
+    # 表情限制校验
+    if category == "emoji":
+        emoji_count = db.query(ChatMessageFavorite).filter(
+            ChatMessageFavorite.user_id == current_user.user_id,
+            ChatMessageFavorite.category == "emoji",
+        ).count()
+        if emoji_count >= 5024:
+            raise fail(status.HTTP_400_BAD_REQUEST, "表情收藏数量已达上限(最大5024个)")
+
     sender = db.query(User).filter(User.user_id == msg.sender_id).first()
     fav = ChatMessageFavorite(
         favorite_id=new_business_id("fav"),
@@ -413,6 +443,7 @@ def favorite_message(
         source_message_id=message_id,
         content=msg.content,
         msg_type=msg.msg_type,
+        category=category,
         media_url=getattr(msg, "media_url", None),
         sender_id=msg.sender_id,
         sender_name=sender.nickname if sender else None,
@@ -426,16 +457,22 @@ def favorite_message(
     "/favorites",
     response_model=list[MessageFavoriteOut],
     summary="我的收藏消息列表",
+    description="获取我的收藏消息，支持按分类（text/image/video/file/emoji/link/other）筛选，支持分页。",
 )
 def list_favorites(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
+    category: Annotated[str | None, Query(pattern="^(text|image|video|file|emoji|link|other)$")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[MessageFavoriteOut]:
-    favs = db.query(ChatMessageFavorite).filter(
+    query = db.query(ChatMessageFavorite).filter(
         ChatMessageFavorite.user_id == current_user.user_id
-    ).order_by(
+    )
+    if category is not None:
+        query = query.filter(ChatMessageFavorite.category == category)
+        
+    favs = query.order_by(
         ChatMessageFavorite.create_time.desc()
     ).offset((page - 1) * limit).limit(limit).all()
     return [MessageFavoriteOut.model_validate(f) for f in favs]
