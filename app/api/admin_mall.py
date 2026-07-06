@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.admin import fail, format_time, get_admin_subject, ok
 from app.api.utils import new_business_id
+from app.core.configs import MALL_SETTING_ID
 from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
@@ -35,8 +36,6 @@ from app.schemas.mall import (
 )
 
 router = APIRouter(prefix="/api/admin/mall", tags=["后台管理"])
-
-MALL_SETTING_ID = 1
 
 
 # ---------------------------------------------------------------------------

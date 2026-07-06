@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.core.configs import DEACTIVATION_WAIT_DAYS, MOBILE_CLIENT_TYPES
 from app.db.base import utc_now
 from app.models.user import User
 
-DEACTIVATION_WAIT_DAYS = 60
-MOBILE_CLIENT_TYPES = {"android", "ios", "harmonyos", "miniprogram", "h5"}
+__all__ = [
+    "DEACTIVATION_WAIT_DAYS",
+    "MOBILE_CLIENT_TYPES",
+    "is_mobile_account",
+    "deactivation_is_due",
+    "mark_deactivated",
+    "expire_deactivation_if_due",
+]
 
 
 def is_mobile_account(user: User) -> bool:

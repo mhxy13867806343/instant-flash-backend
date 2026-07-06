@@ -8,28 +8,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.api.deps import get_current_user_required
+from app.core.configs import (
+    CONTENT_TYPE_SUFFIXES,
+    IMAGE_SUFFIXES,
+    MAX_IMAGE_SIZE,
+    MAX_VIDEO_SIZE,
+    UPLOAD_ROOT,
+    VIDEO_SUFFIXES,
+)
 from app.core.response import fail, ok
 from app.models.user import User
 
 router = APIRouter(prefix="/api/upload", tags=["用户端上传"])
-
-UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "static" / "v1" / "upload"
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
-VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi"}
-MAX_IMAGE_SIZE = 10 * 1024 * 1024
-MAX_VIDEO_SIZE = 200 * 1024 * 1024
-CONTENT_TYPE_SUFFIXES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/jpg": ".jpg",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-    "image/bmp": ".bmp",
-    "video/mp4": ".mp4",
-    "video/quicktime": ".mov",
-    "video/webm": ".webm",
-    "video/x-msvideo": ".avi",
-}
 
 
 def safe_upload_name(filename: str) -> str:

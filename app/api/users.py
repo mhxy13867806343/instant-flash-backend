@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.admin import fail, read_user_import_rows, user_export_response
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
+from app.core.configs import ALLOWED_AVATAR_SUFFIXES, AVATAR_UPLOAD_ROOT, MAX_AVATAR_SIZE
 from app.core.pagination import page_offset, paginate, resolve_limit_offset
 from app.core.response import ok
 from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
@@ -50,9 +51,6 @@ from app.schemas.user_config import (
 from app.models.user_config import UserCustomConfig
 
 router = APIRouter(prefix="/api/user", tags=["用户端用户"])
-AVATAR_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "avatars"
-ALLOWED_AVATAR_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 
 def safe_avatar_filename(filename: str) -> str:

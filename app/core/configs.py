@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 # ==================== 扫码登录（PC）====================
 
 # 二维码有效期（秒）
@@ -52,3 +54,51 @@ TIANDITU_SEARCH_URL = "https://api.tianditu.gov.cn/v2/search"
 TIANDITU_GEOCODER_URL = "https://api.tianditu.gov.cn/geocoder"
 # 附近地点默认检索关键词
 DEFAULT_LOCATION_KEYWORDS = ("商场", "广场", "购物", "大厦", "公园", "地铁")
+
+# ==================== 文件上传 ====================
+
+# 项目根目录（app/core/configs.py 向上三级）
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# 通用上传目录与头像上传目录
+UPLOAD_ROOT = PROJECT_ROOT / "static" / "v1" / "upload"
+AVATAR_UPLOAD_ROOT = PROJECT_ROOT / "static" / "uploads" / "avatars"
+
+# 允许的图片 / 视频后缀（用于成员判断）
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi")
+# 头像允许的图片后缀（不含 .bmp）
+ALLOWED_AVATAR_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+# 上传大小限制（字节）
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_VIDEO_SIZE = 200 * 1024 * 1024
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
+
+# MIME 类型到文件后缀的映射
+CONTENT_TYPE_SUFFIXES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/webm": ".webm",
+    "video/x-msvideo": ".avi",
+}
+
+# ==================== 商城 ====================
+
+# 商城全局设置单行记录 ID
+MALL_SETTING_ID = 1
+# 待支付订单超时时间（分钟）
+ORDER_EXPIRE_MINUTES = 30
+
+# ==================== 账号注销 ====================
+
+# 注销冷静期（天）
+DEACTIVATION_WAIT_DAYS = 60
+# 视为移动端账号的客户端类型集合
+MOBILE_CLIENT_TYPES = {"android", "ios", "harmonyos", "miniprogram", "h5"}

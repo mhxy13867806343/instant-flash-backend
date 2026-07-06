@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_user_optional, get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out
 from app.api.utils import new_business_id
+from app.core.configs import IMAGE_SUFFIXES, VIDEO_SUFFIXES
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
@@ -24,8 +25,6 @@ router = APIRouter(prefix="/api/posts", tags=["用户端内容"])
 
 VISIBLE_POST_STATUSES = ("online", "published")
 PUBLIC_VISIBILITY = "public"
-IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
-VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi")
 
 
 def _media_kind_from_url(url: str) -> str | None:

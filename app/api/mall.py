@@ -11,6 +11,7 @@ from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
 from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
+from app.core.configs import MALL_SETTING_ID, ORDER_EXPIRE_MINUTES
 from app.core.pagination import paginate, paginate_with_total
 from app.core.response import fail, ok
 from app.db.base import utc_now
@@ -33,10 +34,6 @@ from app.schemas.mall import (
 )
 
 router = APIRouter(prefix="/api/mall", tags=["用户端商城"])
-
-MALL_SETTING_ID = 1
-# 待支付订单超时时间（分钟）
-ORDER_EXPIRE_MINUTES = 30
 
 
 # ---------------------------------------------------------------------------
