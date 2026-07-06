@@ -3,17 +3,34 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Path
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.admin import fail
-from app.api.deps import get_current_user_required
+from app.api.deps import get_current_user_required, get_current_user_optional
 from app.core.pagination import paginate_with_total
 from app.core.response import ok
 from app.api.utils import new_business_id
 from app.db.session import get_db
-from app.models.ai_model import AiModel, AiModelPlan, AiModelUsageRecord, AiModelSubscription
+from app.models.ai_model import (
+    AiModel,
+    AiModelPlan,
+    AiModelUsageRecord,
+    AiModelSubscription,
+    AiModelUsageRecordLike,
+    AiModelUsageRecordFavorite,
+    AiModelUsageRecordComment,
+)
 from app.models.user import User
-from app.schemas.ai_model import AiModelUseRequest, BatchDeleteRequest, AiModelSubscribeRequest
+from app.schemas.ai_model import (
+    AiModelUseRequest,
+    BatchDeleteRequest,
+    AiModelSubscribeRequest,
+    AiModelUsageRecordUpdate,
+    AigcCommentCreate,
+    AigcCommentOut,
+    AiModelUsageRecordDetailOut,
+)
 from app.core.ai_model_points import (
     grant_daily_model_points,
     consume_model_points,
@@ -57,6 +74,65 @@ def _usage_record_out(r: AiModelUsageRecord) -> dict:
         "createTime": r.create_time.isoformat() if r.create_time else None,
         "updateTime": r.update_time.isoformat() if r.update_time else None,
     }
+
+
+def _usage_record_detail_out(r: AiModelUsageRecord, db: Session, current_user_id: str | None = None) -> dict:
+    is_liked = False
+    is_favorited = False
+    if current_user_id:
+        is_liked = db.query(AiModelUsageRecordLike).filter(
+            AiModelUsageRecordLike.record_id == r.record_id,
+            AiModelUsageRecordLike.user_id == current_user_id
+        ).first() is not None
+        is_favorited = db.query(AiModelUsageRecordFavorite).filter(
+            AiModelUsageRecordFavorite.record_id == r.record_id,
+            AiModelUsageRecordFavorite.user_id == current_user_id
+        ).first() is not None
+
+    author = db.query(User).filter(User.user_id == r.user_id).first()
+
+    return {
+        "recordId": r.record_id,
+        "userId": r.user_id,
+        "modelId": r.model_id,
+        "modelName": r.model_name,
+        "modelType": r.model_type,
+        "prompt": r.prompt,
+        "result": r.result,
+        "resultType": r.result_type,
+        "pointsConsumed": r.points_consumed,
+        "status": r.status,
+        "createTime": r.create_time.isoformat() if r.create_time else None,
+        "updateTime": r.update_time.isoformat() if r.update_time else None,
+        "title": r.title,
+        "description": r.description,
+        "visibility": r.visibility,
+        "likeCount": r.like_count,
+        "commentCount": r.comment_count,
+        "favoriteCount": r.favorite_count,
+        "viewCount": r.view_count,
+        "isLiked": is_liked,
+        "isFavorited": is_favorited,
+        "isOwner": current_user_id == r.user_id,
+        "authorNickname": author.nickname if author else None,
+        "authorAvatar": author.avatar if author else None,
+    }
+
+
+def _comment_out(c: AiModelUsageRecordComment, db: Session) -> dict:
+    user = db.query(User).filter(User.user_id == c.user_id).first()
+    return {
+        "commentId": c.comment_id,
+        "recordId": c.record_id,
+        "userId": c.user_id,
+        "nickname": user.nickname if user else None,
+        "avatar": user.avatar if user else None,
+        "content": c.content,
+        "parentId": c.parent_id,
+        "isDeleted": c.is_deleted,
+        "createTime": c.create_time.isoformat() if c.create_time else None,
+    }
+
 
 
 def _subscription_out(s: AiModelSubscription) -> dict:
@@ -436,3 +512,261 @@ def get_points_overview(
         "vipLevel": current_user.model_vip_level,
         "vipExpireTime": current_user.model_vip_expire_time.isoformat() if current_user.model_vip_expire_time else None,
     })
+
+
+# ---------------------------------------------------------------------------
+# 作品编辑与分享 (PC/移动端公用)
+# ---------------------------------------------------------------------------
+
+
+@router.put("/history/{recordId}", summary="更新生成作品信息")
+def update_history_work(
+    recordId: str,
+    payload: AiModelUsageRecordUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    r = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.record_id == recordId,
+        AiModelUsageRecord.user_id == current_user.user_id,
+        AiModelUsageRecord.is_deleted == False,
+    ).first()
+    if not r:
+        raise fail(404, "未找到该记录或无权编辑")
+
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(r, k, v)
+    db.commit()
+    db.refresh(r)
+    return ok(_usage_record_detail_out(r, db, current_user.user_id), "作品更新成功")
+
+
+@router.get("/history/{recordId}/public", summary="公开作品详情 (免登录查看)")
+def get_public_history_detail(
+    recordId: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+):
+    r = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.record_id == recordId,
+        AiModelUsageRecord.is_deleted == False,
+    ).first()
+    if not r:
+        raise fail(404, "未找到该历史记录")
+
+    # 如果是私有作品，非所有者不能查看
+    curr_user_id = current_user.user_id if current_user else None
+    if r.visibility == "private" and r.user_id != curr_user_id:
+        raise fail(403, "私有作品，暂不支持公开查看")
+
+    # 浏览量自增
+    r.view_count = (r.view_count or 0) + 1
+    db.commit()
+    db.refresh(r)
+
+    return ok(_usage_record_detail_out(r, db, curr_user_id))
+
+
+# ---------------------------------------------------------------------------
+# 发现画廊 (Discover Gallery)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/discover", summary="发现频道 (免登录画廊)")
+def discover_works(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    type: str | None = Query(default=None, description="按类型筛选: text/video/image/multimodal"),
+    sortBy: str = Query(default="latest", description="排序: latest 最新, hot 最热"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    query = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.visibility == "public",
+        AiModelUsageRecord.is_deleted == False,
+    )
+    if type:
+        query = query.filter(AiModelUsageRecord.model_type == type)
+
+    if sortBy == "hot":
+        query = query.order_by(
+            AiModelUsageRecord.like_count.desc(),
+            AiModelUsageRecord.view_count.desc(),
+            AiModelUsageRecord.create_time.desc()
+        )
+    else:
+        query = query.order_by(AiModelUsageRecord.create_time.desc())
+
+    items, total = paginate_with_total(query, page, limit)
+    curr_user_id = current_user.user_id if current_user else None
+    return ok({
+        "list": [_usage_record_detail_out(item, db, curr_user_id) for item in items],
+        "total": total
+    })
+
+
+# ---------------------------------------------------------------------------
+# 社交互动 (点赞/收藏/评论)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/works/{recordId}/like", summary="点赞或取消点赞作品")
+def toggle_like_work(
+    recordId: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    r = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.record_id == recordId,
+        AiModelUsageRecord.is_deleted == False,
+    ).first()
+    if not r:
+        raise fail(404, "作品未找到或已被删除")
+
+    like = db.query(AiModelUsageRecordLike).filter(
+        AiModelUsageRecordLike.record_id == recordId,
+        AiModelUsageRecordLike.user_id == current_user.user_id
+    ).first()
+
+    liked = False
+    if like:
+        db.delete(like)
+        r.like_count = max(0, (r.like_count or 0) - 1)
+    else:
+        new_like = AiModelUsageRecordLike(
+            record_id=recordId,
+            user_id=current_user.user_id
+        )
+        db.add(new_like)
+        r.like_count = (r.like_count or 0) + 1
+        liked = True
+
+    db.commit()
+    db.refresh(r)
+    return ok({
+        "liked": liked,
+        "likeCount": r.like_count
+    }, "操作成功")
+
+
+@router.post("/works/{recordId}/favorite", summary="收藏或取消收藏作品")
+def toggle_favorite_work(
+    recordId: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    r = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.record_id == recordId,
+        AiModelUsageRecord.is_deleted == False,
+    ).first()
+    if not r:
+        raise fail(404, "作品未找到或已被删除")
+
+    fav = db.query(AiModelUsageRecordFavorite).filter(
+        AiModelUsageRecordFavorite.record_id == recordId,
+        AiModelUsageRecordFavorite.user_id == current_user.user_id
+    ).first()
+
+    favorited = False
+    if fav:
+        db.delete(fav)
+        r.favorite_count = max(0, (r.favorite_count or 0) - 1)
+    else:
+        new_fav = AiModelUsageRecordFavorite(
+            record_id=recordId,
+            user_id=current_user.user_id
+        )
+        db.add(new_fav)
+        r.favorite_count = (r.favorite_count or 0) + 1
+        favorited = True
+
+    db.commit()
+    db.refresh(r)
+    return ok({
+        "favorited": favorited,
+        "favoriteCount": r.favorite_count
+    }, "操作成功")
+
+
+@router.post("/works/{recordId}/comments", summary="发表作品评论/回复")
+def comment_on_work(
+    recordId: str,
+    payload: AigcCommentCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    r = db.query(AiModelUsageRecord).filter(
+        AiModelUsageRecord.record_id == recordId,
+        AiModelUsageRecord.is_deleted == False,
+    ).first()
+    if not r:
+        raise fail(404, "作品未找到")
+
+    if payload.parentId:
+        parent = db.query(AiModelUsageRecordComment).filter(
+            AiModelUsageRecordComment.comment_id == payload.parentId,
+            AiModelUsageRecordComment.record_id == recordId,
+            AiModelUsageRecordComment.is_deleted == False
+        ).first()
+        if not parent:
+            raise fail(404, "回复的父评论不存在")
+
+    c = AiModelUsageRecordComment(
+        comment_id=new_business_id("amc"),
+        record_id=recordId,
+        user_id=current_user.user_id,
+        content=payload.content,
+        parent_id=payload.parentId,
+        is_deleted=False
+    )
+    db.add(c)
+    r.comment_count = (r.comment_count or 0) + 1
+    db.commit()
+    db.refresh(c)
+    return ok(_comment_out(c, db), "评论成功")
+
+
+@router.get("/works/{recordId}/comments", summary="获取作品评论列表")
+def list_work_comments(
+    recordId: str,
+    db: Annotated[Session, Depends(get_db)],
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    query = db.query(AiModelUsageRecordComment).filter(
+        AiModelUsageRecordComment.record_id == recordId,
+        AiModelUsageRecordComment.is_deleted == False
+    ).order_by(AiModelUsageRecordComment.create_time.desc())
+
+    items, total = paginate_with_total(query, page, limit)
+    return ok({
+        "list": [_comment_out(c, db) for c in items],
+        "total": total
+    })
+
+
+@router.delete("/works/comments/{commentId}", summary="删除我的评论")
+def delete_work_comment(
+    commentId: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    c = db.query(AiModelUsageRecordComment).filter(
+        AiModelUsageRecordComment.comment_id == commentId,
+        AiModelUsageRecordComment.is_deleted == False
+    ).first()
+    if not c:
+        raise fail(404, "未找到该评论")
+
+    r = db.query(AiModelUsageRecord).filter(AiModelUsageRecord.record_id == c.record_id).first()
+
+    # 允许评论所有者，或者作品所有者删除评论
+    if c.user_id != current_user.user_id and (not r or r.user_id != current_user.user_id):
+        raise fail(403, "无权删除他人评论")
+
+    c.is_deleted = True
+    if r:
+        r.comment_count = max(0, (r.comment_count or 0) - 1)
+    db.commit()
+    return ok(message="评论删除成功")
+

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column
@@ -114,6 +114,15 @@ class AiModelUsageRecord(TimestampMixin, Base):
     )  # pending / completed / failed
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # 发现与社交互动扩展字段
+    title: Mapped[str | None] = mapped_column(String(128))
+    description: Mapped[str | None] = mapped_column(Text)
+    visibility: Mapped[str] = mapped_column(String(32), default="private", nullable=False)  # public / private
+    like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    comment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
 
 class AiModelPointGrant(TimestampMixin, Base):
     """每日赠送模型积分记录。"""
@@ -159,3 +168,52 @@ class AiModelSubscription(TimestampMixin, Base):
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class AiModelUsageRecordLike(TimestampMixin, Base):
+    """AI 作品点赞记录。"""
+
+    __tablename__ = "ai_model_usage_record_likes"
+    __table_args__ = (UniqueConstraint("record_id", "user_id", name="uq_aim_record_like"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    record_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ai_model_usage_records.record_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+
+
+class AiModelUsageRecordFavorite(TimestampMixin, Base):
+    """AI 作品收藏记录。"""
+
+    __tablename__ = "ai_model_usage_record_favorites"
+    __table_args__ = (UniqueConstraint("record_id", "user_id", name="uq_aim_record_fav"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    record_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ai_model_usage_records.record_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+
+
+class AiModelUsageRecordComment(TimestampMixin, Base):
+    """AI 作品评论记录。"""
+
+    __tablename__ = "ai_model_usage_record_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    comment_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    record_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("ai_model_usage_records.record_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+

@@ -418,3 +418,78 @@ class BatchDeleteRequest(BaseModel):
         min_length=1,
         description="要删除的记录ID列表",
     )
+
+
+class AiModelUsageRecordUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str | None = Field(default=None, max_length=128, description="作品标题")
+    description: str | None = Field(default=None, description="作品描述")
+    visibility: str | None = Field(
+        default=None,
+        pattern="^(public|private)$",
+        description="可见性: public/private",
+    )
+
+
+class AigcCommentCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    content: str = Field(..., min_length=1, max_length=1000, description="评论内容")
+    parentId: str | None = Field(
+        default=None,
+        alias="parentId",
+        validation_alias=AliasChoices("parentId", "parent_id"),
+        max_length=64,
+        description="父评论ID（回复特定评论）",
+    )
+
+
+class AigcCommentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    commentId: str
+    recordId: str
+    userId: str
+    nickname: str | None = None
+    avatar: str | None = None
+    content: str
+    parentId: str | None = None
+    isDeleted: bool = False
+    createTime: datetime
+
+
+class AiModelUsageRecordDetailOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    recordId: str
+    userId: str
+    modelId: str
+    modelName: str
+    modelType: str
+    prompt: str | None = None
+    result: str | None = None
+    resultType: str = "text"
+    pointsConsumed: int = 0
+    status: str = "completed"
+    createTime: datetime
+    updateTime: datetime
+
+    # 发现与社交扩展
+    title: str | None = None
+    description: str | None = None
+    visibility: str = "private"
+    likeCount: int = 0
+    commentCount: int = 0
+    favoriteCount: int = 0
+    viewCount: int = 0
+
+    # 当前用户与作品的交互状态（如未登录则为 False）
+    isLiked: bool = False
+    isFavorited: bool = False
+    isOwner: bool = False
+
+    # 作者基本信息
+    authorNickname: str | None = None
+    authorAvatar: str | None = None
+
