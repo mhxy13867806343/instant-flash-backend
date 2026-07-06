@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class UserProfileUpdate(BaseModel):
@@ -91,6 +91,11 @@ class UserProfile(BaseModel):
     updateTime: datetime = Field(title="更新时间", description="用户资料更新时间")
     lastTime: datetime = Field(title="最近活动时间", description="最近一次业务访问/操作时间")
 
+    deactivationStatus: str | None = Field(default=None, title="注销状态", description="pending/deactivated/None")
+    deactivationReason: str | None = Field(default=None, title="注销原因")
+    deactivationApplyTime: datetime | None = Field(default=None, title="申请注销时间")
+    deactivationEndTime: datetime | None = Field(default=None, title="注销保留截止时间")
+
 
 class ThirdPartyBindPayload(BaseModel):
     platform: str = Field(
@@ -150,4 +155,10 @@ class UserSearchOut(BaseModel):
     isMutual: bool = False
 
 
+class UserDeactivateRequest(BaseModel):
+    reason: str = Field(..., min_length=10, max_length=500, description="注销原因，最低10个字，最高500字")
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value

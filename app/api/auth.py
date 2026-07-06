@@ -18,6 +18,7 @@ from app.api.user_identity import (
 )
 from app.api.utils import new_business_id
 from app.core.points import grant_daily_login, grant_registration
+from app.core.account_deactivation import expire_deactivation_if_due
 from app.core.security import create_access_token, revoke_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -90,9 +91,14 @@ def resolve_phone_login_user(matches: list[User], phone: str) -> User | None:
     return None
 
 
-def ensure_user_can_login(user: User) -> None:
+def ensure_user_can_login(user: User, db: Session) -> None:
+    if user.deactivation_status == "deactivated":
+        raise fail(status.HTTP_403_FORBIDDEN, "账号已永久注销")
     if not user.is_active:
         raise fail(status.HTTP_403_FORBIDDEN, "账号已禁用，请联系管理员")
+    if expire_deactivation_if_due(user):
+        db.commit()
+        raise fail(status.HTTP_403_FORBIDDEN, "账号已永久注销")
 
 
 @router.post(
@@ -157,7 +163,7 @@ def create_dev_token(payload: DevTokenRequest, db: Session = Depends(get_db)) ->
         user = User(user_id=user_id)
         db.add(user)
     else:
-        ensure_user_can_login(user)
+        ensure_user_can_login(user, db)
 
     if phone and user.new_phone != phone:
         user.phone = phone
@@ -219,7 +225,7 @@ def wx_login(payload: WxLoginRequest, db: Session = Depends(get_db)) -> WxLoginR
     elif target_user_id and user.user_id != target_user_id and user.new_phone != phone:
         user = migrate_mobile_user_id(db, user, target_user_id)
     if not created_user:
-        ensure_user_can_login(user)
+        ensure_user_can_login(user, db)
 
     user.openid = user.openid or openid
     if phone and user.new_phone != phone:
@@ -324,7 +330,7 @@ def third_party_login(
         db.flush()
     else:
         # 已绑定，做常规登录处理。如果前端传入了新信息，更新快照和用户信息
-        ensure_user_can_login(user)
+        ensure_user_can_login(user, db)
         
         # 视情况更新 unionid
         if payload.unionid and not binding.unionid:
@@ -412,7 +418,7 @@ def phone_login(
         db.flush()
     else:
         # 已有用户登录，检查是否被禁用
-        ensure_user_can_login(user)
+        ensure_user_can_login(user, db)
 
         # 更新登录设备信息
         if payload.client_type:
@@ -449,5 +455,4 @@ def phone_login(
             "signature": user.bio,
         },
     )
-
 

@@ -29,6 +29,11 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    deactivation_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    deactivation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deactivation_apply_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deactivation_end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
     third_party_bindings = relationship("UserThirdPartyBinding", back_populates="user", cascade="all, delete-orphan")
 
@@ -169,5 +174,4 @@ class UserPersonaFavorite(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("user_id", "persona_id", name="uq_user_persona_favorites_user_persona"),
     )
-
 

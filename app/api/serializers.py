@@ -60,6 +60,10 @@ def user_profile(user: User) -> UserProfile:
         createTime=user.create_time,
         updateTime=user.update_time,
         lastTime=user.last_time,
+        deactivationStatus=user.deactivation_status,
+        deactivationReason=user.deactivation_reason,
+        deactivationApplyTime=user.deactivation_apply_time,
+        deactivationEndTime=user.deactivation_end_time,
     )
 
 

@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
+from app.core.account_deactivation import expire_deactivation_if_due
 from app.db.session import get_db
 from app.models.user import User
 
@@ -26,7 +27,17 @@ def _user_from_credentials(
     if user_id is None:
         return None
 
-    return db.query(User).filter(User.user_id == user_id, User.is_active.is_(True)).one_or_none()
+    user = db.query(User).filter(User.user_id == user_id).one_or_none()
+    if user is None:
+        return None
+    if user.deactivation_status == "deactivated" or not user.is_active:
+        return None
+
+    if expire_deactivation_if_due(user):
+        db.commit()
+        return None
+
+    return user
 
 
 def get_current_user_required(

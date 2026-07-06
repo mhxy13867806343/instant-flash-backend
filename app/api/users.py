@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import timedelta
 from pathlib import Path as FilePath
 from typing import Annotated
 
@@ -15,6 +16,7 @@ from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
 from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.core.security import create_access_token
+from app.core.account_deactivation import DEACTIVATION_WAIT_DAYS, is_mobile_account
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.comment import Comment
@@ -35,6 +37,7 @@ from app.schemas.user import (
     BatchFollowRequest,
     FollowedUserOut,
     UserSearchOut,
+    UserDeactivateRequest,
 )
 from app.schemas.user_config import (
     UserCustomConfigCreate,
@@ -88,6 +91,63 @@ def save_avatar_upload(file: UploadFile, user_id: str) -> tuple[str, int, str]:
 )
 def get_profile(current_user: Annotated[User, Depends(get_current_user_required)]) -> UserProfile:
     return user_profile(current_user)
+
+
+@router.post(
+    "/deactivation",
+    summary="申请注销账号",
+    description="仅移动端账号可申请注销。申请后有 60 天等待期，期间可取消注销。",
+)
+def apply_for_deactivation(
+    payload: UserDeactivateRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    if not is_mobile_account(current_user):
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号注销仅支持移动端操作")
+    if current_user.deactivation_status == "pending":
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号已申请注销，请勿重复申请")
+
+    apply_time = utc_now()
+    current_user.deactivation_status = "pending"
+    current_user.deactivation_reason = payload.reason
+    current_user.deactivation_apply_time = apply_time
+    current_user.deactivation_end_time = apply_time + timedelta(days=DEACTIVATION_WAIT_DAYS)
+    db.commit()
+    db.refresh(current_user)
+    return ok(
+        {
+            "deactivationStatus": current_user.deactivation_status,
+            "deactivationReason": current_user.deactivation_reason,
+            "deactivationApplyTime": current_user.deactivation_apply_time,
+            "deactivationEndTime": current_user.deactivation_end_time,
+        },
+        "账号注销申请成功，可在60天内取消",
+    )
+
+
+@router.post(
+    "/deactivation/cancel",
+    summary="取消注销账号",
+    description="仅移动端账号可在 60 天等待期内取消注销。",
+)
+def cancel_deactivation(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    if not is_mobile_account(current_user):
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号注销仅支持移动端操作")
+    if current_user.deactivation_status != "pending":
+        raise fail(status.HTTP_400_BAD_REQUEST, "账号当前没有待取消的注销申请")
+
+    current_user.deactivation_status = None
+    current_user.deactivation_reason = None
+    current_user.deactivation_apply_time = None
+    current_user.deactivation_end_time = None
+    current_user.is_active = True
+    db.commit()
+    db.refresh(current_user)
+    return ok({"deactivationStatus": None}, "账号注销已取消")
 
 
 @router.put(
@@ -802,6 +862,4 @@ def search_users(
             )
         )
     return result
-
-
 
