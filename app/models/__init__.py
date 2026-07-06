@@ -11,6 +11,7 @@ from app.models.user_config import UserCustomConfig
 from app.models.mall import MallSetting, MallProduct, MallOrder, MallPaymentMethod, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare, MallOrderLogisticsStep, MallCustomerService, MallChatSession, MallChatMessage, MallProductBargain
 from app.models.wallet import UserWallet, WalletRecord
 from app.models.chat import GlobalChatSession, GlobalChatMessage, ChatGroup, ChatGroupMember, ChatGroupMessage, ChatMessageFavorite, ChatGroupJoinRequest
+from app.models.ai_model import AiModel, AiModelPlan, AiModelPromotion, AiModelUsageRecord, AiModelPointGrant, AiModelSubscription
 
 __all__ = [
     "AdminAgreement",
@@ -67,5 +68,11 @@ __all__ = [
     "ChatGroupMessage",
     "ChatMessageFavorite",
     "ChatGroupJoinRequest",
+    "AiModel",
+    "AiModelPlan",
+    "AiModelPromotion",
+    "AiModelUsageRecord",
+    "AiModelPointGrant",
+    "AiModelSubscription",
 ]
 

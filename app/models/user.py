@@ -34,6 +34,13 @@ class User(TimestampMixin, Base):
     deactivation_apply_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deactivation_end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # AI 模型积分相关
+    model_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 充值模型积分（不过期）
+    daily_model_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 今日赠送模型积分
+    model_vip_level: Mapped[str | None] = mapped_column(String(32), nullable=True)  # basic/standard/premium/super
+    model_vip_expire_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
     third_party_bindings = relationship("UserThirdPartyBinding", back_populates="user", cascade="all, delete-orphan")
 

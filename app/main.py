@@ -35,6 +35,8 @@ from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.wallet import router as wallet_router
 from app.api.personas import router as personas_router
+from app.api.admin_ai_model import router as admin_ai_model_router
+from app.api.ai_model import router as ai_model_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
 from app.core.rate_limit import check_rate_limit
@@ -56,6 +58,7 @@ openapi_tags = [
     {"name": "用户端消息", "description": "当前登录用户消息中心"},
     {"name": "公共地区", "description": "PC 后台和用户端共用的省市区三级地区数据"},
     {"name": "系统", "description": "健康检查等系统接口"},
+    {"name": "AI模型服务", "description": "AI模型配置、套餐充值、使用生成和历史记录等服务接口"},
 ]
 
 app = FastAPI(
@@ -99,6 +102,8 @@ app.include_router(feedback_router)
 app.include_router(agreements_router)
 app.include_router(agreements_legacy_router)
 app.include_router(agreements_user_router)
+app.include_router(admin_ai_model_router)
+app.include_router(ai_model_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
