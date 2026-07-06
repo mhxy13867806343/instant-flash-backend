@@ -46,3 +46,6 @@ class WalletRecord(TimestampMixin, Base):
     source_id: Mapped[str | None] = mapped_column(
         String(64), index=True, nullable=True
     )  # 关联来源业务ID，如订单号、充值订单号
+    pay_method: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )  # 充值支付方式: alipay / wechat / other

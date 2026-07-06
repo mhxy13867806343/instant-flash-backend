@@ -10,7 +10,7 @@ from app.api.admin import fail, get_admin_subject, ok
 from app.db.session import get_db
 from app.models.user import User
 from app.models.wallet import WalletRecord, UserWallet
-from app.schemas.wallet import WalletAdjustRequest, WalletRecordOut, WalletRecordListResponse
+from app.schemas.wallet import WalletAdjustRequest, WalletRecordOut, WalletRecordListResponse, PAY_METHOD_LABELS
 from app.core.wallet import get_or_create_wallet, change_wallet_balance, WALLET_TYPE_LABELS
 
 router = APIRouter(prefix="/api/admin/wallet", tags=["后台管理"])
@@ -32,6 +32,8 @@ def _record_out(r: WalletRecord) -> WalletRecordOut:
         title=r.title,
         remark=r.remark,
         sourceId=r.source_id,
+        payMethod=r.pay_method,
+        payMethodLabel=PAY_METHOD_LABELS.get(r.pay_method or "", None),
         createTime=r.create_time,
     )
 

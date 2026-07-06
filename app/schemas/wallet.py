@@ -6,6 +6,16 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
+# 支付方式标签映射
+PAY_METHOD_LABELS = {
+    "alipay": "支付宝",
+    "wechat": "微信支付",
+    "bank_card": "银行卡",
+    "apple_pay": "Apple Pay",
+    "other": "其他",
+}
+
+
 class UserWalletOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,6 +41,8 @@ class WalletRecordOut(BaseModel):
     title: str
     remark: str | None = None
     sourceId: str | None = None
+    payMethod: str | None = Field(default=None, title="支付方式")
+    payMethodLabel: str | None = Field(default=None, title="支付方式展示标签")
     createTime: datetime
 
 
@@ -40,8 +52,26 @@ class WalletRecordListResponse(BaseModel):
 
 
 class WalletRechargeRequest(BaseModel):
-    amount: int = Field(gt=0, title="充值金额（分）", description="充值金额，单位：分，必须大于 0")
+    amount: int = Field(
+        gt=0,
+        le=99999900,
+        title="充值金额（分）",
+        description="充值金额，单位：分。最低 1 分 (0.01元)，最高 99999900 分 (999999.00元)",
+    )
+    payMethod: str = Field(
+        default="alipay",
+        description="支付方式：alipay 支付宝 / wechat 微信支付 / bank_card 银行卡 / apple_pay / other",
+    )
     remark: str | None = Field(default=None, max_length=256, title="充值备注")
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_range(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("充值金额最低 0.01 元（1 分）")
+        if v > 99999900:
+            raise ValueError("充值金额最高 999999.00 元（99999900 分）")
+        return v
 
 
 class WalletAdjustRequest(BaseModel):

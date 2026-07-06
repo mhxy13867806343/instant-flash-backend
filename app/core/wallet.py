@@ -38,6 +38,7 @@ def change_wallet_balance(
     title: str,
     remark: str | None = None,
     source_id: str | None = None,
+    pay_method: str | None = None,
 ) -> WalletRecord:
     """
     修改用户钱包余额并记录变动明细。
@@ -63,7 +64,9 @@ def change_wallet_balance(
         title=title,
         remark=remark,
         source_id=source_id,
+        pay_method=pay_method,
     )
     db.add(record)
     db.flush()
     return record
+
