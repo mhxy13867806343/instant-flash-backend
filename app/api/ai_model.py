@@ -93,6 +93,23 @@ def _usage_record_detail_out(r: AiModelUsageRecord, db: Session, current_user_id
 
     author = db.query(User).filter(User.user_id == r.user_id).first()
 
+    like_count = r.like_count
+    comment_count = r.comment_count
+    favorite_count = r.favorite_count
+    view_count = r.view_count
+
+    # 全局展示控制校验：如果查看者不是作者本人，且作者配置了隐藏，则将数据置为 0
+    is_owner = current_user_id == r.user_id
+    if not is_owner and author:
+        if not getattr(author, "show_likes", True):
+            like_count = 0
+        if not getattr(author, "show_views", True):
+            view_count = 0
+        if not getattr(author, "show_comments", True):
+            comment_count = 0
+        if not getattr(author, "show_favorites", True):
+            favorite_count = 0
+
     return {
         "recordId": r.record_id,
         "userId": r.user_id,
@@ -109,13 +126,13 @@ def _usage_record_detail_out(r: AiModelUsageRecord, db: Session, current_user_id
         "title": r.title,
         "description": r.description,
         "visibility": r.visibility,
-        "likeCount": r.like_count,
-        "commentCount": r.comment_count,
-        "favoriteCount": r.favorite_count,
-        "viewCount": r.view_count,
+        "likeCount": like_count,
+        "commentCount": comment_count,
+        "favoriteCount": favorite_count,
+        "viewCount": view_count,
         "isLiked": is_liked,
         "isFavorited": is_favorited,
-        "isOwner": current_user_id == r.user_id,
+        "isOwner": is_owner,
         "authorNickname": author.nickname if author else None,
         "authorAvatar": author.avatar if author else None,
     }

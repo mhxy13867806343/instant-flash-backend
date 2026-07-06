@@ -96,6 +96,13 @@ class UserProfile(BaseModel):
     deactivationApplyTime: datetime | None = Field(default=None, title="申请注销时间")
     deactivationEndTime: datetime | None = Field(default=None, title="注销保留截止时间")
 
+    # 全局数据统计量展示设置（点赞量、访问量、评论量、收藏量）
+    showLikes: bool = Field(default=True, title="是否显示点赞量")
+    showViews: bool = Field(default=True, title="是否显示访问量")
+    showComments: bool = Field(default=True, title="是否显示评论量")
+    showFavorites: bool = Field(default=True, title="是否显示收藏量")
+
+
 
 class ThirdPartyBindPayload(BaseModel):
     platform: str = Field(
@@ -162,3 +169,16 @@ class UserDeactivateRequest(BaseModel):
     @classmethod
     def normalize_reason(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+class BatchDeactivateRequest(BaseModel):
+    userIds: list[str] = Field(..., description="要批量注销的用户 ID 列表")
+    reason: str = Field(..., max_length=500, description="注销原因说明")
+
+
+class UserSettingsUpdate(BaseModel):
+    showLikes: bool | None = Field(default=None, description="是否展示点赞数")
+    showViews: bool | None = Field(default=None, description="是否展示访问数")
+    showComments: bool | None = Field(default=None, description="是否展示评论数")
+    showFavorites: bool | None = Field(default=None, description="是否展示收藏数")
+    toggleAll: bool | None = Field(default=None, description="一键开启或隐藏所有数据")

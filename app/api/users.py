@@ -41,6 +41,7 @@ from app.schemas.user import (
     FollowedUserOut,
     UserSearchOut,
     UserDeactivateRequest,
+    UserSettingsUpdate,
 )
 from app.schemas.user_config import (
     UserCustomConfigCreate,
@@ -144,6 +145,39 @@ def cancel_deactivation(
     db.commit()
     db.refresh(current_user)
     return ok({"deactivationStatus": None}, "账号注销已取消")
+
+
+@router.put(
+    "/profile/settings",
+    response_model=UserProfile,
+    summary="更新全局数据展示设置",
+    description="支持一键更新（toggleAll）或单独更新（showLikes, showViews, showComments, showFavorites）",
+)
+def update_profile_settings(
+    payload: UserSettingsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> UserProfile:
+    if payload.toggleAll is not None:
+        val = payload.toggleAll
+        current_user.show_likes = val
+        current_user.show_views = val
+        current_user.show_comments = val
+        current_user.show_favorites = val
+    else:
+        if payload.showLikes is not None:
+            current_user.show_likes = payload.showLikes
+        if payload.showViews is not None:
+            current_user.show_views = payload.showViews
+        if payload.showComments is not None:
+            current_user.show_comments = payload.showComments
+        if payload.showFavorites is not None:
+            current_user.show_favorites = payload.showFavorites
+
+    current_user.last_time = utc_now()
+    db.commit()
+    db.refresh(current_user)
+    return user_profile(current_user)
 
 
 @router.put(

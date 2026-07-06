@@ -64,6 +64,10 @@ def user_profile(user: User) -> UserProfile:
         deactivationReason=user.deactivation_reason,
         deactivationApplyTime=user.deactivation_apply_time,
         deactivationEndTime=user.deactivation_end_time,
+        showLikes=getattr(user, "show_likes", True),
+        showViews=getattr(user, "show_views", True),
+        showComments=getattr(user, "show_comments", True),
+        showFavorites=getattr(user, "show_favorites", True),
     )
 
 
@@ -88,6 +92,18 @@ def post_out(post: Post, current_user: User | None, is_liked: bool) -> PostOut:
     is_owner = current_user is not None and current_user.user_id == post.user_id
     media = post.images or []
     videos = [item for item in media if media_type(item) == "video"]
+
+    # 全局展示控制校验
+    like_count = post.like_count
+    comment_count = post.comment_count
+
+    # 如果访客不是作者，且作者配置了隐藏
+    if not is_owner and post.author:
+        if not getattr(post.author, "show_likes", True):
+            like_count = 0
+        if not getattr(post.author, "show_comments", True):
+            comment_count = 0
+
     return PostOut(
         postId=post.post_id,
         userId=post.user_id,
@@ -103,8 +119,8 @@ def post_out(post: Post, current_user: User | None, is_liked: bool) -> PostOut:
         city=post.city,
         district=post.district,
         visibility=post.visibility,
-        likeCount=post.like_count,
-        commentCount=post.comment_count,
+        likeCount=like_count,
+        commentCount=comment_count,
         shareCount=post.share_count,
         status=post.status,
         isLiked=is_liked,

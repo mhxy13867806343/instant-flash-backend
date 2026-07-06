@@ -40,6 +40,12 @@ class User(TimestampMixin, Base):
     model_vip_level: Mapped[str | None] = mapped_column(String(32), nullable=True)  # basic/standard/premium/super
     model_vip_expire_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # 全局数据统计量展示设置（点赞量、访问量、评论量、收藏量）
+    show_likes: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_views: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_comments: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_favorites: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
 
     posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
     third_party_bindings = relationship("UserThirdPartyBinding", back_populates="user", cascade="all, delete-orphan")
