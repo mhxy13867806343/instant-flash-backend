@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
@@ -13,6 +12,7 @@ from app.core.points import (
     POINT_TYPE_NAMES,
     PointError,
     grant_checkin,
+    sum_point_change,
     grant_invite,
     has_awarded_today,
     POINT_TYPE_CHECKIN,
@@ -33,17 +33,6 @@ class InviteRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def _sum_change(db: Session, user_id: str, positive: bool) -> int:
-    query = db.query(func.coalesce(func.sum(PointRecord.change_amount), 0)).filter(
-        PointRecord.user_id == user_id
-    )
-    if positive:
-        query = query.filter(PointRecord.change_amount > 0)
-    else:
-        query = query.filter(PointRecord.change_amount < 0)
-    return int(query.scalar() or 0)
-
-
 @router.get(
     "",
     summary="我的积分概览",
@@ -53,8 +42,8 @@ def points_overview(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
 ) -> dict[str, object]:
-    total_earned = _sum_change(db, current_user.user_id, positive=True)
-    total_consumed = abs(_sum_change(db, current_user.user_id, positive=False))
+    total_earned = sum_point_change(db, current_user.user_id, positive=True)
+    total_consumed = abs(sum_point_change(db, current_user.user_id, positive=False))
     return ok(
         {
             "userId": current_user.user_id,

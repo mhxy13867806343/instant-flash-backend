@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.serializers import media_type
 from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
+from app.core.db_utils import sum_column
 from app.core.response import fail, ok
 from app.core.security import create_access_token, decode_access_token, revoke_access_token
 from app.db.base import utc_now
@@ -329,11 +330,8 @@ def user_item(db: Session, user: User) -> dict[str, Any]:
         .scalar()
         or 0
     )
-    likes_received = (
-        db.query(func.coalesce(func.sum(Post.like_count), 0))
-        .filter(Post.user_id == user.user_id, Post.is_deleted.is_(False))
-        .scalar()
-        or 0
+    likes_received = sum_column(
+        db, Post.like_count, Post.user_id == user.user_id, Post.is_deleted.is_(False)
     )
     return {
         "userId": user.user_id,
@@ -1494,12 +1492,7 @@ def dashboard_metrics(
     offline_posts = post_query.filter(Post.status == "offline").count()
     online_posts = total_posts - offline_posts
     total_comments = db.query(func.count(Comment.id)).filter(Comment.is_deleted.is_(False)).scalar() or 0
-    total_likes = (
-        db.query(func.coalesce(func.sum(Post.like_count), 0))
-        .filter(Post.is_deleted.is_(False))
-        .scalar()
-        or 0
-    )
+    total_likes = sum_column(db, Post.like_count, Post.is_deleted.is_(False))
     return ok(
         {
             "totalUsers": total_users,

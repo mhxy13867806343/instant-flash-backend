@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.utils import new_business_id
+from app.core.db_utils import sum_column
 from app.models.point_record import PointRecord
 from app.models.user import User
 
@@ -56,6 +57,12 @@ def cst_day_bounds(now: datetime | None = None) -> tuple[datetime, datetime]:
     current = (now or datetime.now(CST)).astimezone(CST)
     start = current.replace(hour=0, minute=0, second=0, microsecond=0)
     return start, start + timedelta(days=1)
+
+
+def sum_point_change(db: Session, user_id: str, positive: bool) -> int:
+    """统计用户积分变动总额：positive=True 求获得，False 求消耗（负值）。"""
+    condition = PointRecord.change_amount > 0 if positive else PointRecord.change_amount < 0
+    return sum_column(db, PointRecord.change_amount, PointRecord.user_id == user_id, condition)
 
 
 def award_points(

@@ -12,7 +12,7 @@ from app.api.serializers import point_record_item
 from app.api.user_identity import normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
 from app.core.pagination import paginate_with_total
-from app.core.points import POINT_TYPE_COMPENSATION, award_points
+from app.core.points import POINT_TYPE_COMPENSATION, award_points, sum_point_change
 from app.core.wallet import get_or_create_wallet
 from app.db.session import get_db
 from app.models.point_record import PointRecord
@@ -21,21 +21,10 @@ from app.models.user import User
 router = APIRouter(prefix="/api/admin/points", tags=["后台管理"])
 
 
-def _sum_change(db: Session, user_id: str, positive: bool) -> int:
-    query = db.query(func.coalesce(func.sum(PointRecord.change_amount), 0)).filter(
-        PointRecord.user_id == user_id
-    )
-    if positive:
-        query = query.filter(PointRecord.change_amount > 0)
-    else:
-        query = query.filter(PointRecord.change_amount < 0)
-    return int(query.scalar() or 0)
-
-
 def points_user_item(db: Session, user: User) -> dict[str, Any]:
     phone = user.phone or phone_from_user_id(user.user_id) or ""
-    total_earned = _sum_change(db, user.user_id, positive=True)
-    total_consumed = abs(_sum_change(db, user.user_id, positive=False))
+    total_earned = sum_point_change(db, user.user_id, positive=True)
+    total_consumed = abs(sum_point_change(db, user.user_id, positive=False))
     record_count = (
         db.query(func.count(PointRecord.id)).filter(PointRecord.user_id == user.user_id).scalar() or 0
     )

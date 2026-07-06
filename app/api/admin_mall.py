@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.admin import fail, format_time, get_admin_subject, ok
 from app.api.utils import new_business_id
 from app.core.configs import MALL_SETTING_ID
+from app.core.db_utils import sum_column
 from app.core.points import POINT_TYPE_MALL, award_points, cst_day_bounds
 from app.core.wallet import change_wallet_balance
 from app.db.base import utc_now
@@ -599,15 +600,11 @@ def mall_stats(
 
     # 有效订单（已支付/已发货/已完成）的销售额和积分消耗
     valid_statuses = ["paid", "shipped", "completed"]
-    revenue: int = int(
-        db.query(func.coalesce(func.sum(MallOrder.total_price), 0))
-        .filter(MallOrder.status.in_(valid_statuses))
-        .scalar() or 0
+    revenue: int = sum_column(
+        db, MallOrder.total_price, MallOrder.status.in_(valid_statuses)
     )
-    points_consumed: int = int(
-        db.query(func.coalesce(func.sum(MallOrder.points_used), 0))
-        .filter(MallOrder.status.in_(valid_statuses))
-        .scalar() or 0
+    points_consumed: int = sum_column(
+        db, MallOrder.points_used, MallOrder.status.in_(valid_statuses)
     )
 
     # 今日新增订单（CST 时区）

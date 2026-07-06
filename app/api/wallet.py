@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
@@ -19,6 +18,7 @@ from app.schemas.wallet import (
     PAY_METHOD_LABELS,
 )
 from app.core.wallet import get_or_create_wallet, change_wallet_balance, WALLET_TYPE_LABELS
+from app.core.db_utils import sum_column
 from app.core.pagination import paginate_with_total
 from app.core.response import fail, ok
 
@@ -58,15 +58,19 @@ def wallet_overview(
 ) -> dict[str, Any]:
     w = get_or_create_wallet(db, current_user.user_id)
 
-    total_recharged = db.query(func.coalesce(func.sum(WalletRecord.change_amount), 0)).filter(
+    total_recharged = sum_column(
+        db,
+        WalletRecord.change_amount,
         WalletRecord.user_id == current_user.user_id,
-        WalletRecord.type == "recharge"
-    ).scalar() or 0
+        WalletRecord.type == "recharge",
+    )
 
-    total_spent = db.query(func.coalesce(func.sum(WalletRecord.change_amount), 0)).filter(
+    total_spent = sum_column(
+        db,
+        WalletRecord.change_amount,
         WalletRecord.user_id == current_user.user_id,
-        WalletRecord.type == "consume"
-    ).scalar() or 0
+        WalletRecord.type == "consume",
+    )
 
     return ok(
         {
