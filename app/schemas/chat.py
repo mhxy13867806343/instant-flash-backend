@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, AliasGenerator, field_validator
+from pydantic.alias_generators import to_camel, to_snake
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +129,12 @@ class GroupMessageCreate(BaseModel):
 
 
 class GroupMessageOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_snake,
+        ),
+    )
 
     messageId: str
     groupId: str
@@ -147,6 +154,13 @@ class GroupMessageOut(BaseModel):
     senderAvatar: str | None = Field(default=None, title="发送者头像")
     createTime: datetime
 
+    @field_validator("atUserIds", mode="before")
+    @classmethod
+    def val_at_user_ids(cls, v: Any) -> list[str] | None:
+        if isinstance(v, str):
+            return [uid.strip() for uid in v.split(",") if uid.strip()]
+        return v
+
 
 # ---------------------------------------------------------------------------
 # 消息操作
@@ -160,7 +174,12 @@ class MessageForward(BaseModel):
 
 
 class MessageFavoriteOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_snake,
+        ),
+    )
 
     favoriteId: str
     userId: str

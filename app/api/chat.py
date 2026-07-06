@@ -41,6 +41,8 @@ from app.schemas.chat import (
     GroupJoinRequestOut,
 )
 
+from app.core.mentions import notify_mentions
+
 router = APIRouter(prefix="/api/chat", tags=["聊天系统"])
 
 
@@ -991,6 +993,17 @@ async def send_group_message(
     out.senderName = current_user.nickname
     out.senderAvatar = current_user.avatar
     out.atUserIds = payload.atUserIds
+
+    # 发送 @ 提到用户通知
+    notify_mentions(
+        db=db,
+        sender_id=current_user.user_id,
+        text=payload.content or "",
+        extra_user_ids=payload.atUserIds,
+        source_type="group_chat",
+        source_id=group_id,
+    )
+    db.commit()
 
     # WS 实时广播群消息给所有群成员
     members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()

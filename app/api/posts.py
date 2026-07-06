@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas.comment import CommentCreate, CommentListResponse, CommentOut
 from app.schemas.post import LikeResponse, PostCreate, PostListResponse, PostOut, PostUpdate
 from app.schemas.share import ShareCreate, ShareOut
+from app.core.mentions import notify_mentions
 
 router = APIRouter(prefix="/api/posts", tags=["用户端内容"])
 
@@ -697,6 +698,17 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
+
+    # 发送 @ 提到用户通知
+    notify_mentions(
+        db=db,
+        sender_id=current_user.user_id,
+        text=payload.content,
+        source_type="comment",
+        source_id=comment.comment_id,
+    )
+    db.commit()
+
     reply_to_user = db.query(User).filter(User.user_id == reply_to_user_id).one_or_none() if reply_to_user_id else None
     return comment_out(comment, current_user, reply_to_user)
 

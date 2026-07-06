@@ -40,6 +40,8 @@ from app.core.ai_model_points import (
     today_expire_at,
 )
 
+from app.core.mentions import notify_mentions
+
 router = APIRouter(prefix="/api/ai-model", tags=["AI模型服务"])
 
 
@@ -723,6 +725,17 @@ def comment_on_work(
     r.comment_count = (r.comment_count or 0) + 1
     db.commit()
     db.refresh(c)
+
+    # 发送 @ 提到用户通知
+    notify_mentions(
+        db=db,
+        sender_id=current_user.user_id,
+        text=payload.content,
+        source_type="comment",
+        source_id=c.comment_id,
+    )
+    db.commit()
+
     return ok(_comment_out(c, db), "评论成功")
 
 
