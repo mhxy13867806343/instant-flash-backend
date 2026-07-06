@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Annotated
 
@@ -857,3 +857,63 @@ def search_users(
         )
     return result
 
+
+# ---------------------------------------------------------------------------
+# 帐号注销 (仅移动端)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/deactivate",
+    summary="申请注销帐号",
+    description="提交帐号注销申请，进入60天保留期。保留期内可取消注销。注销原因最低10字、最高500字。",
+)
+def apply_deactivation(
+    body: UserDeactivateRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    # 已经在注销流程中
+    if current_user.deactivation_status == "pending":
+        return fail(msg="您已提交注销申请，请勿重复操作")
+    if current_user.deactivation_status == "deactivated":
+        return fail(msg="帐号已注销")
+
+    now = datetime.now(timezone.utc)
+    current_user.deactivation_status = "pending"
+    current_user.deactivation_reason = body.reason
+    current_user.deactivation_apply_time = now
+    current_user.deactivation_end_time = now + timedelta(days=60)
+    db.commit()
+    db.refresh(current_user)
+
+    return ok(
+        data={
+            "deactivationStatus": current_user.deactivation_status,
+            "deactivationApplyTime": current_user.deactivation_apply_time.isoformat() if current_user.deactivation_apply_time else None,
+            "deactivationEndTime": current_user.deactivation_end_time.isoformat() if current_user.deactivation_end_time else None,
+        },
+        msg="注销申请已提交，60天内可取消",
+    )
+
+
+@router.post(
+    "/deactivate/cancel",
+    summary="取消注销帐号",
+    description="在60天保留期内取消帐号注销申请，恢复正常使用。",
+)
+def cancel_deactivation(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+):
+    if current_user.deactivation_status != "pending":
+        return fail(msg="当前没有待处理的注销申请")
+
+    current_user.deactivation_status = None
+    current_user.deactivation_reason = None
+    current_user.deactivation_apply_time = None
+    current_user.deactivation_end_time = None
+    db.commit()
+    db.refresh(current_user)
+
+    return ok(msg="注销申请已取消，帐号恢复正常")
