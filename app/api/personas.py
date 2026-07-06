@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_optional, get_current_user_required
 from app.api.utils import new_business_id
+from app.core.pagination import paginate
+from app.core.response import fail, ok
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models import User, UserPersona, UserPersonaComment, UserPersonaFavorite
@@ -21,17 +23,6 @@ from app.schemas.persona import (
 )
 
 router = APIRouter(prefix="/api/user/personas", tags=["用户画像"])
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
-
-
-def ok(data: Any = None, message: str = "success") -> dict[str, Any]:
-    return {"code": 200, "message": message, "data": data or {}}
 
 
 def _persona_out(p: UserPersona, current_user_id: str | None, db: Session) -> PersonaOut:
@@ -181,9 +172,13 @@ def list_my_personas(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[PersonaOut]:
-    items = db.query(UserPersona).filter(
-        UserPersona.user_id == current_user.user_id
-    ).order_by(UserPersona.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = paginate(
+        db.query(UserPersona).filter(
+            UserPersona.user_id == current_user.user_id
+        ).order_by(UserPersona.create_time.desc()),
+        page,
+        limit,
+    )
 
     return [_persona_out(x, current_user.user_id, db) for x in items]
 
@@ -201,10 +196,14 @@ def get_personas_feed(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[PersonaOut]:
     now = utc_now()
-    items = db.query(UserPersona).filter(
-        UserPersona.privacy == "public",
-        UserPersona.expire_time > now,
-    ).order_by(UserPersona.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = paginate(
+        db.query(UserPersona).filter(
+            UserPersona.privacy == "public",
+            UserPersona.expire_time > now,
+        ).order_by(UserPersona.create_time.desc()),
+        page,
+        limit,
+    )
 
     uid = current_user.user_id if current_user else None
     return [_persona_out(x, uid, db) for x in items]
@@ -310,13 +309,17 @@ def list_persona_comments(
         raise fail(status.HTTP_404_NOT_FOUND, "用户画像未找到")
 
     # Fetch comments join User
-    rows = db.query(UserPersonaComment, User).join(
-        User, UserPersonaComment.user_id == User.user_id
-    ).filter(
-        UserPersonaComment.persona_id == persona_id
-    ).order_by(
-        UserPersonaComment.create_time.desc()
-    ).offset((page - 1) * limit).limit(limit).all()
+    rows = paginate(
+        db.query(UserPersonaComment, User).join(
+            User, UserPersonaComment.user_id == User.user_id
+        ).filter(
+            UserPersonaComment.persona_id == persona_id
+        ).order_by(
+            UserPersonaComment.create_time.desc()
+        ),
+        page,
+        limit,
+    )
 
     result = []
     for comment, user in rows:

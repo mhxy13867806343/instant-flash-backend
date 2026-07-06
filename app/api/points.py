@@ -17,22 +17,13 @@ from app.core.points import (
     has_awarded_today,
     POINT_TYPE_CHECKIN,
 )
+from app.core.pagination import paginate_with_total
+from app.core.response import fail, ok
 from app.db.session import get_db
 from app.models.point_record import PointRecord
 from app.models.user import User
 
 router = APIRouter(prefix="/api/user/points", tags=["用户端积分"])
-
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data if data is not None else {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 class InviteRequest(BaseModel):
@@ -98,13 +89,8 @@ def points_records(
     elif direction == "consume":
         query = query.filter(PointRecord.change_amount < 0)
 
-    total = query.count()
-    records = (
-        query.order_by(PointRecord.create_time.desc(), PointRecord.id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    query = query.order_by(PointRecord.create_time.desc(), PointRecord.id.desc())
+    records, total = paginate_with_total(query, page, limit)
     return ok({"list": [point_record_item(record) for record in records], "total": total})
 
 

@@ -19,19 +19,10 @@ from app.schemas.wallet import (
     PAY_METHOD_LABELS,
 )
 from app.core.wallet import get_or_create_wallet, change_wallet_balance, WALLET_TYPE_LABELS
+from app.core.pagination import paginate_with_total
+from app.core.response import fail, ok
 
 router = APIRouter(prefix="/api/wallet", tags=["用户端钱包"])
-
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data if data is not None else {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def _record_out(r: WalletRecord) -> WalletRecordOut:
@@ -116,13 +107,8 @@ def wallet_records(
     if direction:
         q = q.filter(WalletRecord.direction == direction)
 
-    total = q.count()
-    records = (
-        q.order_by(WalletRecord.create_time.desc(), WalletRecord.id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    q = q.order_by(WalletRecord.create_time.desc(), WalletRecord.id.desc())
+    records, total = paginate_with_total(q, page, limit)
     return WalletRecordListResponse(
         items=[_record_out(r) for r in records],
         total=total,

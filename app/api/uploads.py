@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.api.deps import get_current_user_required
+from app.core.response import fail, ok
 from app.models.user import User
 
 router = APIRouter(prefix="/api/upload", tags=["用户端上传"])
@@ -29,17 +30,6 @@ CONTENT_TYPE_SUFFIXES = {
     "video/webm": ".webm",
     "video/x-msvideo": ".avi",
 }
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data or {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def safe_upload_name(filename: str) -> str:

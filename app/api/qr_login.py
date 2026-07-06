@@ -8,19 +8,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
-from app.core.points import grant_daily_login
-from app.core.qr_login_store import (
+from app.core.configs import (
+    CLIENT_TYPE_PC,
+    QR_CONTENT_SCHEME,
     QR_TTL_SECONDS,
     STATUS_CANCELLED,
     STATUS_CONFIRMED,
     STATUS_EXPIRED,
     STATUS_PENDING,
     STATUS_SCANNED,
+)
+from app.core.points import grant_daily_login
+from app.core.qr_login_store import (
     create_qr_session,
     delete_qr_session,
     get_qr_session,
     update_qr_session,
 )
+from app.core.response import fail
 from app.core.security import create_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -35,13 +40,6 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/api/auth/qrcode", tags=["扫码登录(PC)"])
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def user_payload(user: User) -> dict[str, object | None]:
@@ -84,7 +82,7 @@ def create_qrcode() -> QrCodeCreateResponse:
     qr_id = uuid4().hex
     ticket = uuid4().hex
     create_qr_session(qr_id, ticket)
-    content = f"ifqr://login?ticket={ticket}&qrId={qr_id}"
+    content = f"{QR_CONTENT_SCHEME}?ticket={ticket}&qrId={qr_id}"
     return QrCodeCreateResponse(
         qrId=qr_id,
         ticket=ticket,
@@ -205,7 +203,7 @@ def qrcode_confirm(
         return QrCodeConfirmResponse(qrId=qr_id, status=STATUS_CANCELLED, message="已取消登录")
 
     # 确认登录：记录 PC 登录来源并发放每日登录奖励
-    current_user.client_type = "pc"
+    current_user.client_type = CLIENT_TYPE_PC
     current_user.last_time = utc_now()
     grant_daily_login(db, current_user)
     db.commit()

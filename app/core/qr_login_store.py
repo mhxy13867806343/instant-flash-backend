@@ -5,23 +5,18 @@ import time
 from typing import Any
 
 from app.core.config import settings
-
-# 二维码有效期（秒）
-QR_TTL_SECONDS = 120
-
-# 状态常量
-STATUS_PENDING = "pending"      # 已生成，等待扫码
-STATUS_SCANNED = "scanned"      # 已被 App 扫码，等待确认
-STATUS_CONFIRMED = "confirmed"  # 已确认登录
-STATUS_CANCELLED = "cancelled"  # 已取消
-STATUS_EXPIRED = "expired"      # 已过期（Redis key 消失时的兜底返回值）
+from app.core.configs import (
+    QR_REDIS_KEY_TEMPLATE,
+    QR_TTL_SECONDS,
+    STATUS_PENDING,
+)
 
 _memory_store: dict[str, tuple[str, float]] = {}
 _redis_client: Any | None = None
 
 
 def _qr_key(qr_id: str) -> str:
-    return f"{settings.redis_key_prefix}:auth:qrlogin:{qr_id}"
+    return QR_REDIS_KEY_TEMPLATE.format(prefix=settings.redis_key_prefix, qr_id=qr_id)
 
 
 def _use_memory_store() -> bool:

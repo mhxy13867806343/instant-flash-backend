@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
+from app.core.response import fail, ok
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import (
@@ -43,17 +44,6 @@ from app.schemas.mall_interactions import (
 )
 
 router = APIRouter(tags=["商城增强交互（物流/客服/会话还价）"])
-
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data if data is not None else {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 # ---------------------------------------------------------------------------

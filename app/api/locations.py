@@ -10,24 +10,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.configs import (
+    DEFAULT_LOCATION_KEYWORDS,
+    TIANDITU_GEOCODER_URL,
+    TIANDITU_SEARCH_URL,
+)
+from app.core.response import fail, ok
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/locations", tags=["用户端位置"])
-
-TIANDITU_SEARCH_URL = "https://api.tianditu.gov.cn/v2/search"
-TIANDITU_GEOCODER_URL = "https://api.tianditu.gov.cn/geocoder"
-DEFAULT_LOCATION_KEYWORDS = ("商场", "广场", "购物", "大厦", "公园", "地铁")
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def resolve_coordinate(primary: float | None, *aliases: float | None) -> float | None:

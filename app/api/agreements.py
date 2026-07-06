@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
+from app.core.response import fail, ok
 from app.db.session import get_db
 from app.models.admin_agreement import AdminAgreement
 
@@ -23,17 +24,6 @@ DEFAULT_AGREEMENTS = {
         "content": "<h2>即闪用户协议</h2><p>请在后台编辑最新用户协议内容。</p>",
     },
 }
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data or {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def format_time(value: datetime | None) -> str:

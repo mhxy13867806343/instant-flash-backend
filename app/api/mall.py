@@ -11,6 +11,8 @@ from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
 from app.core.points import POINT_TYPE_MALL, award_points
 from app.core.wallet import get_or_create_wallet, change_wallet_balance
+from app.core.pagination import paginate, paginate_with_total
+from app.core.response import fail, ok
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.mall import MallOrder, MallPaymentMethod, MallProduct, MallSetting, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare, MallProductBargain
@@ -40,17 +42,6 @@ ORDER_EXPIRE_MINUTES = 30
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data if data is not None else {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
-
 
 def _get_setting(db: Session) -> MallSetting:
     setting = db.get(MallSetting, MALL_SETTING_ID)
@@ -230,12 +221,7 @@ def mobile_list_products(
     if not order_clauses:
         order_clauses = [MallProduct.sort.asc(), MallProduct.create_time.desc()]
 
-    products = (
-        q.order_by(*order_clauses)
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    products = paginate(q.order_by(*order_clauses), page, limit)
     return MallProductListResponse(
         items=[_product_out(db, p, setting.points_switch, current_user.user_id) for p in products],
         total=total,
@@ -566,13 +552,8 @@ def mobile_list_orders(
     q = db.query(MallOrder).filter(MallOrder.user_id == current_user.user_id)
     if order_status and order_status != "all":
         q = q.filter(MallOrder.status == order_status)
-    total = q.count()
-    orders = (
-        q.order_by(MallOrder.create_time.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    q = q.order_by(MallOrder.create_time.desc())
+    orders, total = paginate_with_total(q, page, limit)
     # ✅ #5 批量检查超时，自动取消过期待支付订单
     now_str = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
     need_commit = False
@@ -889,13 +870,8 @@ def mobile_list_product_comments(
         MallProductComment.product_id == product_id,
         MallProductComment.status == "approved",
     )
-    total = q.count()
-    comments = (
-        q.order_by(MallProductComment.create_time.desc(), MallProductComment.id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    q = q.order_by(MallProductComment.create_time.desc(), MallProductComment.id.desc())
+    comments, total = paginate_with_total(q, page, limit)
     return MallProductCommentListResponse(
         items=[_comment_out(c) for c in comments],
         total=total,
@@ -1089,13 +1065,8 @@ def mobile_list_favorited_products(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> MallProductListResponse:
     q = db.query(MallProductFavorite).filter(MallProductFavorite.user_id == current_user.user_id)
-    total = q.count()
-    favs = (
-        q.order_by(MallProductFavorite.create_time.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    q = q.order_by(MallProductFavorite.create_time.desc())
+    favs, total = paginate_with_total(q, page, limit)
     product_ids = [f.product_id for f in favs]
     
     if not product_ids:

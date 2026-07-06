@@ -11,6 +11,7 @@ from app.api.admin import AdminResponse, fail, format_time, get_admin_subject, o
 from app.api.serializers import point_record_item
 from app.api.user_identity import normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
+from app.core.pagination import paginate_with_total
 from app.core.points import POINT_TYPE_COMPENSATION, award_points
 from app.core.wallet import get_or_create_wallet
 from app.db.session import get_db
@@ -87,8 +88,7 @@ def list_points_users(
     else:
         query = query.order_by(User.points.desc(), User.create_time.desc())
 
-    total = query.count()
-    users = query.offset((page - 1) * limit).limit(limit).all()
+    users, total = paginate_with_total(query, page, limit)
     return ok({"list": [points_user_item(db, user) for user in users], "total": total})
 
 
@@ -119,13 +119,8 @@ def list_points_user_records(
     elif direction == "consume":
         query = query.filter(PointRecord.change_amount < 0)
 
-    total = query.count()
-    records = (
-        query.order_by(PointRecord.create_time.desc(), PointRecord.id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    query = query.order_by(PointRecord.create_time.desc(), PointRecord.id.desc())
+    records, total = paginate_with_total(query, page, limit)
     return ok(
         {
             "userId": user.user_id,

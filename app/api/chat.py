@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
 from app.core.chat_ws import manager
+from app.core.pagination import paginate
+from app.core.response import fail, ok
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.chat import (
@@ -40,17 +42,6 @@ from app.schemas.chat import (
 )
 
 router = APIRouter(prefix="/api/chat", tags=["聊天系统"])
-
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data if data is not None else {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def _private_msg_out(m: GlobalChatMessage) -> PrivateMessageOut:
@@ -474,9 +465,7 @@ def list_favorites(
     if category is not None:
         query = query.filter(ChatMessageFavorite.category == category)
         
-    favs = query.order_by(
-        ChatMessageFavorite.create_time.desc()
-    ).offset((page - 1) * limit).limit(limit).all()
+    favs = paginate(query.order_by(ChatMessageFavorite.create_time.desc()), page, limit)
     return [MessageFavoriteOut.model_validate(f) for f in favs]
 
 
@@ -1032,11 +1021,15 @@ def list_group_messages(
     if member is None:
         raise fail(status.HTTP_403_FORBIDDEN, "你不是该群的成员")
 
-    msgs = db.query(ChatGroupMessage).filter(
-        ChatGroupMessage.group_id == group_id
-    ).order_by(
-        ChatGroupMessage.create_time.asc()
-    ).offset((page - 1) * limit).limit(limit).all()
+    msgs = paginate(
+        db.query(ChatGroupMessage).filter(
+            ChatGroupMessage.group_id == group_id
+        ).order_by(
+            ChatGroupMessage.create_time.asc()
+        ),
+        page,
+        limit,
+    )
 
     result = []
     for m in msgs:
@@ -1230,7 +1223,7 @@ def search_groups(
     else:
         q = q.order_by(ChatGroup.create_time.desc())
 
-    groups = q.offset((page - 1) * limit).limit(limit).all()
+    groups = paginate(q, page, limit)
     return groups
 
 

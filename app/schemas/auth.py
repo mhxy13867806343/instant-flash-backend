@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from app.core.configs import TOKEN_TYPE_BEARER
+
 
 class DevTokenRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -77,14 +79,14 @@ class WxLoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     accessToken: str = Field(title="访问令牌", description="Bearer Token")
-    tokenType: str = Field(default="Bearer", title="令牌类型", description="固定为 Bearer")
+    tokenType: str = Field(default=TOKEN_TYPE_BEARER, title="令牌类型", description="固定为 Bearer")
     userId: str = Field(title="业务用户 ID", description="当前登录用户 ID")
 
 
 class WxLoginResponse(BaseModel):
     accessToken: str = Field(title="访问令牌", description="Bearer Token")
     token: str = Field(title="兼容 Token", description="兼容前端读取的 token 字段，值同 accessToken")
-    tokenType: str = Field(default="Bearer", title="令牌类型", description="固定为 Bearer")
+    tokenType: str = Field(default=TOKEN_TYPE_BEARER, title="令牌类型", description="固定为 Bearer")
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
 
 
@@ -126,7 +128,7 @@ class ThirdPartyLoginRequest(BaseModel):
 class ThirdPartyLoginResponse(BaseModel):
     accessToken: str = Field(title="访问令牌", description="Bearer Token")
     token: str = Field(title="兼容 Token", description="兼容前端读取的 token 字段，值同 accessToken")
-    tokenType: str = Field(default="Bearer", title="令牌类型")
+    tokenType: str = Field(default=TOKEN_TYPE_BEARER, title="令牌类型")
     isNewUser: bool = Field(title="是否为新用户", description="首次登录自动注册成功返回 true")
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
 
@@ -162,7 +164,7 @@ class PhoneLoginRequest(BaseModel):
 class PhoneLoginResponse(BaseModel):
     accessToken: str = Field(title="访问令牌", description="Bearer Token")
     token: str = Field(title="兼容 Token", description="值同 accessToken")
-    tokenType: str = Field(default="Bearer", title="令牌类型")
+    tokenType: str = Field(default=TOKEN_TYPE_BEARER, title="令牌类型")
     isNewUser: bool = Field(title="是否为新用户", description="首次登录自动注册成功返回 true")
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
 
@@ -245,7 +247,7 @@ class QrCodeStatusResponse(BaseModel):
     )
     accessToken: str | None = Field(default=None, title="访问令牌", description="仅在 confirmed 时返回一次")
     token: str | None = Field(default=None, title="兼容 Token", description="值同 accessToken")
-    tokenType: str = Field(default="Bearer", title="令牌类型")
+    tokenType: str = Field(default=TOKEN_TYPE_BEARER, title="令牌类型")
     user: dict[str, object | None] | None = Field(default=None, title="用户信息", description="仅在 confirmed 时返回")
 
 

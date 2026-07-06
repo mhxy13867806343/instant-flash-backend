@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
 from app.api.serializers import message_out
+from app.core.pagination import resolve_limit_offset
+from app.core.response import ok
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.message import Message
@@ -14,10 +16,6 @@ from app.models.user import User
 from app.schemas.message import MessageOut
 
 router = APIRouter(prefix="/api/messages", tags=["用户端消息"])
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data}
 
 
 def notification_item(message: Message) -> dict[str, object | None]:
@@ -51,9 +49,7 @@ def list_messages(
     page: Annotated[int | None, Query(ge=1, description="页码，兼容 page/pageSize 分页")] = None,
     page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量，兼容 page/pageSize 分页")] = None,
 ) -> list[MessageOut]:
-    if page is not None:
-        limit = page_size or limit
-        offset = (page - 1) * limit
+    limit, offset = resolve_limit_offset(page, page_size, limit, offset)
     query = db.query(Message).filter(Message.user_id == current_user.user_id)
     if unread_only:
         query = query.filter(Message.is_read.is_(False))

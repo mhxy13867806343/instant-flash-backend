@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.admin import fail, read_user_import_rows, user_export_response
 from app.api.deps import get_current_user_required
 from app.api.serializers import comment_out, post_out, share_out, user_profile
+from app.core.pagination import page_offset, paginate, resolve_limit_offset
+from app.core.response import ok
 from app.api.user_identity import mobile_user_id, normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.core.security import create_access_token
 from app.core.account_deactivation import DEACTIVATION_WAIT_DAYS, is_mobile_account
@@ -51,10 +53,6 @@ router = APIRouter(prefix="/api/user", tags=["用户端用户"])
 AVATAR_UPLOAD_ROOT = FilePath(__file__).resolve().parents[2] / "static" / "uploads" / "avatars"
 ALLOWED_AVATAR_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_AVATAR_SIZE = 5 * 1024 * 1024
-
-
-def ok(data: object | None = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data or {}}
 
 
 def safe_avatar_filename(filename: str) -> str:
@@ -331,9 +329,7 @@ def my_posts(
     page: Annotated[int | None, Query(ge=1, description="页码，兼容 page/pageSize 分页")] = None,
     page_size: Annotated[int | None, Query(alias="pageSize", ge=1, le=100, description="每页数量，兼容 page/pageSize 分页")] = None,
 ) -> PostListResponse:
-    if page is not None:
-        limit = page_size or limit
-        offset = (page - 1) * limit
+    limit, offset = resolve_limit_offset(page, page_size, limit, offset)
     base_query = db.query(Post).filter(
         Post.user_id == current_user.user_id, Post.is_deleted.is_(False)
     )
@@ -751,7 +747,7 @@ def list_followings(
 ) -> list[FollowedUserOut]:
     sub = db.query(UserFollow).filter(
         UserFollow.user_id == current_user.user_id
-    ).order_by(UserFollow.create_time.desc()).offset((page - 1) * limit).limit(limit).subquery()
+    ).order_by(UserFollow.create_time.desc()).offset(page_offset(page, limit)).limit(limit).subquery()
 
     # Query details
     rows = db.query(User, sub.c.create_time).join(
@@ -785,7 +781,7 @@ def list_followers(
 ) -> list[FollowedUserOut]:
     sub = db.query(UserFollow).filter(
         UserFollow.following_id == current_user.user_id
-    ).order_by(UserFollow.create_time.desc()).offset((page - 1) * limit).limit(limit).subquery()
+    ).order_by(UserFollow.create_time.desc()).offset(page_offset(page, limit)).limit(limit).subquery()
 
     # Query details
     rows = db.query(User, sub.c.create_time).join(
@@ -832,7 +828,7 @@ def search_users(
         )
     )
 
-    users = query.offset((page - 1) * limit).limit(limit).all()
+    users = paginate(query, page, limit)
 
     result = []
     for u in users:

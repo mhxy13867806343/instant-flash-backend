@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.utils import new_business_id
+from app.core.response import ok
 from app.db.session import get_db
 from app.models.system_config import AdminTag
 
@@ -24,10 +25,6 @@ DEFAULT_TOPIC_NAMES = [
     "运动搭子",
 ]
 DEFAULT_TOPIC_ORDER = {name: index for index, name in enumerate(DEFAULT_TOPIC_NAMES, start=1)}
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data}
 
 
 def seed_default_topics(db: Session) -> None:

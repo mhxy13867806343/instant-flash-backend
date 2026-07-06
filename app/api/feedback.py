@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_optional
 from app.api.utils import new_business_id
+from app.core.response import fail, ok
 from app.db.session import get_db
 from app.models.system_config import AdminFeedbackField, AdminFeedbackFormConfig, FeedbackSubmission
 from app.models.user import User
@@ -22,17 +23,6 @@ class FeedbackSubmitPayload(BaseModel):
     title: str | None = Field(default=None, max_length=128, title="反馈标题", description="反馈标题或菜单名称")
     content: str | None = Field(default=None, title="反馈内容", description="反馈详细内容")
     data: dict[str, Any] = Field(default_factory=dict, title="动态字段数据", description="动态表单字段提交值")
-
-
-def ok(data: object = None, message: str = "success") -> dict[str, object]:
-    return {"code": 200, "message": message, "data": data or {}}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def field_item(field: AdminFeedbackField) -> dict[str, Any]:

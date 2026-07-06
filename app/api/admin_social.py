@@ -9,6 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.admin import fail, get_admin_subject, ok
+from app.core.pagination import paginate
 from app.db.session import get_db
 from app.models import User, UserFollow, UserPersona, UserPersonaComment, UserPersonaFavorite
 
@@ -115,7 +116,7 @@ def get_follow_relations(
     if following_id:
         query = query.filter(UserFollow.following_id == following_id)
 
-    items = query.order_by(UserFollow.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = paginate(query.order_by(UserFollow.create_time.desc()), page, limit)
 
     results = []
     for f in items:
@@ -164,7 +165,7 @@ def get_personas_list(
     if privacy:
         query = query.filter(UserPersona.privacy == privacy)
 
-    items = query.order_by(UserPersona.create_time.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = paginate(query.order_by(UserPersona.create_time.desc()), page, limit)
     return [_admin_persona_out(p, db) for p in items]
 
 
@@ -220,13 +221,17 @@ def get_persona_comments(
     if p is None:
         raise fail(status.HTTP_404_NOT_FOUND, "用户画像未找到")
 
-    rows = db.query(UserPersonaComment, User).join(
-        User, UserPersonaComment.user_id == User.user_id
-    ).filter(
-        UserPersonaComment.persona_id == persona_id
-    ).order_by(
-        UserPersonaComment.create_time.desc()
-    ).offset((page - 1) * limit).limit(limit).all()
+    rows = paginate(
+        db.query(UserPersonaComment, User).join(
+            User, UserPersonaComment.user_id == User.user_id
+        ).filter(
+            UserPersonaComment.persona_id == persona_id
+        ).order_by(
+            UserPersonaComment.create_time.desc()
+        ),
+        page,
+        limit,
+    )
 
     results = []
     for comment, user in rows:

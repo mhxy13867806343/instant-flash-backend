@@ -19,6 +19,7 @@ from app.api.user_identity import (
 from app.api.utils import new_business_id
 from app.core.points import grant_daily_login, grant_registration
 from app.core.account_deactivation import expire_deactivation_if_due
+from app.core.response import fail
 from app.core.security import create_access_token, revoke_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -37,13 +38,6 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["鉴权登录"])
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def migrate_mobile_user_id(db: Session, user: User, target_user_id: str) -> User:

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.serializers import media_type
 from app.api.user_identity import normalize_client_subtype, normalize_client_type, normalize_phone, phone_from_user_id
 from app.api.utils import new_business_id
+from app.core.response import fail, ok
 from app.core.security import create_access_token, decode_access_token, revoke_access_token
 from app.db.base import utc_now
 from app.db.session import get_db
@@ -293,17 +294,6 @@ class AdminResponse(BaseModel):
     code: int = Field(title="业务状态码", description="200 表示成功，其他值表示业务失败")
     message: str = Field(title="提示信息", description="接口处理结果说明")
     data: Any = Field(default=None, title="响应数据", description="接口返回的业务数据")
-
-
-def ok(data: Any = None, message: str = "success") -> dict[str, Any]:
-    return {"code": 200, "message": message, "data": data}
-
-
-def fail(status_code: int, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": status_code, "message": message, "data": {}},
-    )
 
 
 def format_time(value: datetime | None) -> str:
