@@ -90,3 +90,34 @@ class UserProfile(BaseModel):
     createTime: datetime = Field(title="创建时间", description="用户创建时间")
     updateTime: datetime = Field(title="更新时间", description="用户资料更新时间")
     lastTime: datetime = Field(title="最近活动时间", description="最近一次业务访问/操作时间")
+
+
+class ThirdPartyBindPayload(BaseModel):
+    platform: str = Field(
+        ...,
+        pattern="^(wechat|qq|alipay|[a-zA-Z0-9_-]{2,32})$",
+        description="第三方平台标识，默认支持 wechat / qq / alipay，也支持自定义平台",
+    )
+    openid: str = Field(..., min_length=1, max_length=128, description="第三方平台用户标识 openid")
+    unionid: str | None = Field(default=None, max_length=128, description="可选第三方平台统一标识 unionid")
+    nickname: str | None = Field(default=None, max_length=64, description="第三方账户昵称快照")
+    avatar: str | None = Field(default=None, max_length=512, description="第三方账户头像快照")
+    extraData: dict | None = Field(default=None, description="平台特定的额外参数，例如 JSON 自定义配置")
+
+
+class ThirdPartyUnbindPayload(BaseModel):
+    platform: str = Field(..., description="要解绑的第三方平台标识，例如 wechat / qq / alipay")
+
+
+class ThirdPartyBindingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    bindingId: str
+    userId: str
+    platform: str
+    openid: str
+    unionid: str | None = None
+    nickname: str | None = None
+    avatar: str | None = None
+    createTime: datetime
+

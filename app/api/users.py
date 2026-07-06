@@ -21,11 +21,18 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.post_like import PostLike
 from app.models.post_share import PostShare
-from app.models.user import User
+from app.models.user import User, UserThirdPartyBinding
 from app.schemas.comment import CommentOut
 from app.schemas.post import PostListResponse, PostOut
 from app.schemas.share import ShareOut
-from app.schemas.user import UserBindPhoneRequest, UserProfile, UserProfileUpdate
+from app.schemas.user import (
+    UserBindPhoneRequest,
+    UserProfile,
+    UserProfileUpdate,
+    ThirdPartyBindPayload,
+    ThirdPartyUnbindPayload,
+    ThirdPartyBindingOut,
+)
 from app.schemas.user_config import (
     UserCustomConfigCreate,
     UserCustomConfigListResponse,
@@ -509,3 +516,94 @@ def delete_user_config(
     db.delete(cfg)
     db.commit()
     return ok(message="删除成功")
+
+
+# ---------------------------------------------------------------------------
+# 第三方账号绑定 (WeChat, QQ, Alipay, Feishu, etc.)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/third-party/bindings",
+    response_model=list[ThirdPartyBindingOut],
+    summary="查看我的第三方账号绑定列表",
+    description="获取当前登录用户已绑定的第三方账号明细（如 QQ, 微信, 支付宝及自定义渠道）。",
+)
+def list_third_party_bindings(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> list[ThirdPartyBindingOut]:
+    bindings = db.query(UserThirdPartyBinding).filter(
+        UserThirdPartyBinding.user_id == current_user.user_id
+    ).order_by(UserThirdPartyBinding.create_time.desc()).all()
+    return [ThirdPartyBindingOut.model_validate(b) for b in bindings]
+
+
+@router.post(
+    "/third-party/bind",
+    response_model=ThirdPartyBindingOut,
+    summary="绑定第三方账号",
+    description="绑定当前登录用户至第三方平台（qq, wechat, alipay 等）。PC/移动端公用。",
+)
+def bind_third_party(
+    payload: ThirdPartyBindPayload,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> ThirdPartyBindingOut:
+    from app.api.utils import new_business_id
+
+    # 1. 检查该第三方账号是否已被其他用户绑定
+    exists_other = db.query(UserThirdPartyBinding).filter(
+        UserThirdPartyBinding.platform == payload.platform,
+        UserThirdPartyBinding.openid == payload.openid,
+    ).first()
+    if exists_other:
+        if exists_other.user_id == current_user.user_id:
+            raise fail(status.HTTP_400_BAD_REQUEST, "您已经绑定了该账号，无需重复绑定")
+        raise fail(status.HTTP_400_BAD_REQUEST, "该第三方账号已被其他用户绑定")
+
+    # 2. 检查用户是否已在该平台绑定了其他账号
+    exists_platform = db.query(UserThirdPartyBinding).filter(
+        UserThirdPartyBinding.user_id == current_user.user_id,
+        UserThirdPartyBinding.platform == payload.platform,
+    ).first()
+    if exists_platform:
+        raise fail(status.HTTP_400_BAD_REQUEST, f"您已绑定了该平台({payload.platform})的其他账号，请先解绑")
+
+    # 3. 执行绑定
+    new_bind = UserThirdPartyBinding(
+        binding_id=new_business_id("tpb"),
+        user_id=current_user.user_id,
+        platform=payload.platform,
+        openid=payload.openid,
+        unionid=payload.unionid,
+        nickname=payload.nickname,
+        avatar=payload.avatar,
+        extra_data=payload.extraData,
+    )
+    db.add(new_bind)
+    db.commit()
+    db.refresh(new_bind)
+    return ThirdPartyBindingOut.model_validate(new_bind)
+
+
+@router.post(
+    "/third-party/unbind",
+    summary="解绑第三方账号",
+    description="解除当前用户在指定平台（如 qq, wechat, alipay）绑定的第三方账号。",
+)
+def unbind_third_party(
+    payload: ThirdPartyUnbindPayload,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, object]:
+    binding = db.query(UserThirdPartyBinding).filter(
+        UserThirdPartyBinding.user_id == current_user.user_id,
+        UserThirdPartyBinding.platform == payload.platform,
+    ).first()
+    if binding is None:
+        raise fail(status.HTTP_404_NOT_FOUND, f"未找到您在该平台({payload.platform})的绑定关系")
+
+    db.delete(binding)
+    db.commit()
+    return ok(message=f"成功解绑该平台({payload.platform})的第三方账号")
+
