@@ -167,3 +167,85 @@ class PhoneLoginResponse(BaseModel):
     user: dict[str, object | None] = Field(title="用户信息", description="当前登录用户资料")
 
 
+class QrCodeCreateResponse(BaseModel):
+    qrId: str = Field(title="二维码 ID", description="PC 端轮询状态所用的唯一标识")
+    ticket: str = Field(title="扫码票据", description="供手机 App 扫码后回传的票据")
+    content: str = Field(title="二维码内容", description="二维码承载的原始字符串，前端据此渲染二维码图片")
+    expireIn: int = Field(title="有效期(秒)", description="二维码有效期，固定 120 秒，过期后需刷新")
+    status: str = Field(title="状态", description="初始状态为 pending")
+
+
+class QrCodeScanRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    qr_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        alias="qrId",
+        validation_alias=AliasChoices("qrId", "qr_id"),
+        title="二维码 ID",
+        description="扫码内容中携带的 qrId",
+    )
+    ticket: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        validation_alias=AliasChoices("ticket", "qrTicket"),
+        title="扫码票据",
+        description="手机 App 扫码得到的 ticket",
+    )
+
+
+class QrCodeScanResponse(BaseModel):
+    qrId: str = Field(title="二维码 ID")
+    status: str = Field(title="状态", description="扫码成功后为 scanned")
+    message: str = Field(title="提示信息")
+
+
+class QrCodeConfirmRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    qr_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        alias="qrId",
+        validation_alias=AliasChoices("qrId", "qr_id"),
+        title="二维码 ID",
+        description="扫码内容中携带的 qrId",
+    )
+    ticket: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        validation_alias=AliasChoices("ticket", "qrTicket"),
+        title="扫码票据",
+        description="手机 App 扫码得到的 ticket",
+    )
+    action: str = Field(
+        default="confirm",
+        pattern="^(confirm|cancel)$",
+        title="操作",
+        description="confirm 确认登录，cancel 取消登录",
+    )
+
+
+class QrCodeConfirmResponse(BaseModel):
+    qrId: str = Field(title="二维码 ID")
+    status: str = Field(title="状态", description="确认后为 confirmed，取消后为 cancelled")
+    message: str = Field(title="提示信息")
+
+
+class QrCodeStatusResponse(BaseModel):
+    qrId: str = Field(title="二维码 ID")
+    status: str = Field(
+        title="状态",
+        description="pending 待扫码 / scanned 已扫码待确认 / confirmed 已确认 / cancelled 已取消 / expired 已过期",
+    )
+    accessToken: str | None = Field(default=None, title="访问令牌", description="仅在 confirmed 时返回一次")
+    token: str | None = Field(default=None, title="兼容 Token", description="值同 accessToken")
+    tokenType: str = Field(default="Bearer", title="令牌类型")
+    user: dict[str, object | None] | None = Field(default=None, title="用户信息", description="仅在 confirmed 时返回")
+
+

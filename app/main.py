@@ -22,6 +22,7 @@ from app.api.admin_social import router as admin_social_router
 from app.api.chat import router as chat_router
 from app.api.chat_ws_api import router as chat_ws_router
 from app.api.auth import router as auth_router
+from app.api.qr_login import router as qr_login_router
 from app.api.feedback import router as feedback_router
 from app.api.locations import router as locations_router
 from app.api.mall import router as mall_router
@@ -79,6 +80,7 @@ app.include_router(admin_mall_router)
 app.include_router(admin_wallet_router)
 app.include_router(admin_social_router)
 app.include_router(auth_router)
+app.include_router(qr_login_router)
 app.include_router(mall_router)
 app.include_router(mall_interactions_router)
 app.include_router(points_router)

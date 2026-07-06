@@ -24,6 +24,14 @@ CLIENT_TYPE_ALIASES = {
     "weixin": "miniprogram",
     "wx": "miniprogram",
     "h5": "h5",
+    "pc": "pc",
+    "web": "pc",
+    "desktop": "pc",
+    "windows": "pc",
+    "mac": "pc",
+    "electron": "pc",
+    "电脑": "pc",
+    "网页": "pc",
 }
 
 CLIENT_SUBTYPE_ALIASES = {
