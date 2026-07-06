@@ -45,6 +45,15 @@ class MallProduct(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="off_shelf", nullable=False, index=True)
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # 扩展属性
+    is_hot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    is_top10: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    is_today: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    allow_multiple_purchase: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_time_slot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    time_slot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
 
 
 class MallOrder(TimestampMixin, Base):

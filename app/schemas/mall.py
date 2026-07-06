@@ -93,11 +93,23 @@ class MallProductCreate(BaseModel):
     )
     sort: int = Field(default=0, ge=0, title="排序值")
     remark: str | None = Field(default=None, title="备注")
+    
+    is_hot: bool = Field(default=False, alias="isHot", validation_alias=AliasChoices("isHot", "is_hot"), title="是否热门")
+    is_top10: bool = Field(default=False, alias="isTop10", validation_alias=AliasChoices("isTop10", "is_top10"), title="是否排行前十")
+    is_today: bool = Field(default=False, alias="isToday", validation_alias=AliasChoices("isToday", "is_today"), title="是否今日推荐")
+    allow_multiple_purchase: bool = Field(default=True, alias="allowMultiplePurchase", validation_alias=AliasChoices("allowMultiplePurchase", "allow_multiple_purchase"), title="是否允许购买多次")
+    is_time_slot: bool = Field(default=False, alias="isTimeSlot", validation_alias=AliasChoices("isTimeSlot", "is_time_slot"), title="是否时间段商品")
+    time_slot: str | None = Field(default=None, alias="timeSlot", validation_alias=AliasChoices("timeSlot", "time_slot"), max_length=64, title="具体时间段")
 
     @model_validator(mode="after")
-    def set_default_current_price(self) -> "MallProductCreate":
+    def set_default_current_price_and_time_slot(self) -> "MallProductCreate":
         if self.current_price is None:
             self.current_price = max(1, self.original_price // 2)
+        if self.is_time_slot:
+            if not self.time_slot or not self.time_slot.strip():
+                raise ValueError("时间段商品必须选择并填写时间段 text (timeSlot)")
+        else:
+            self.time_slot = None
         return self
 
     @field_validator("images")
@@ -150,6 +162,20 @@ class MallProductUpdate(BaseModel):
     )
     sort: int | None = Field(default=None, ge=0)
     remark: str | None = Field(default=None)
+    
+    is_hot: bool | None = Field(default=None, alias="isHot", validation_alias=AliasChoices("isHot", "is_hot"))
+    is_top10: bool | None = Field(default=None, alias="isTop10", validation_alias=AliasChoices("isTop10", "is_top10"))
+    is_today: bool | None = Field(default=None, alias="isToday", validation_alias=AliasChoices("isToday", "is_today"))
+    allow_multiple_purchase: bool | None = Field(default=None, alias="allowMultiplePurchase", validation_alias=AliasChoices("allowMultiplePurchase", "allow_multiple_purchase"))
+    is_time_slot: bool | None = Field(default=None, alias="isTimeSlot", validation_alias=AliasChoices("isTimeSlot", "is_time_slot"))
+    time_slot: str | None = Field(default=None, alias="timeSlot", validation_alias=AliasChoices("timeSlot", "time_slot"), max_length=64)
+
+    @model_validator(mode="after")
+    def validate_time_slot_update(self) -> "MallProductUpdate":
+        if self.is_time_slot is True:
+            if self.time_slot is not None and not self.time_slot.strip():
+                raise ValueError("时间段商品必须填写具体时间段 text (timeSlot)")
+        return self
 
     @field_validator("images")
     @classmethod
@@ -179,6 +205,14 @@ class MallProductOut(BaseModel):
     remark: str | None = Field(default=None)
     createTime: datetime = Field(title="创建时间")
     updateTime: datetime = Field(title="更新时间")
+    
+    isHot: bool = Field(default=False, title="是否热门")
+    isTop10: bool = Field(default=False, title="是否排行前十")
+    isToday: bool = Field(default=False, title="是否今日推荐")
+    allowMultiplePurchase: bool = Field(default=True, title="是否允许多次购买")
+    isTimeSlot: bool = Field(default=False, title="是否时间段商品")
+    timeSlot: str | None = Field(default=None, title="具体时间段")
+
     
     # 互动属性拓展
     isLiked: bool = Field(default=False, title="当前用户是否已点赞")

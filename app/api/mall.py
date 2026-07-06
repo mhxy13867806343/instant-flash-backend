@@ -101,6 +101,12 @@ def _product_out(
         remark=p.remark,
         createTime=p.create_time,
         updateTime=p.update_time,
+        isHot=p.is_hot,
+        isTop10=p.is_top10,
+        isToday=p.is_today,
+        allowMultiplePurchase=p.allow_multiple_purchase,
+        isTimeSlot=p.is_time_slot,
+        timeSlot=p.time_slot,
         isLiked=is_liked,
         isFavorited=is_favorited,
         likesCount=likes_cnt,
@@ -182,6 +188,12 @@ def mobile_list_products(
     keyword: Annotated[str | None, Query(description="标题关键词")] = None,
     sort_price: Annotated[str | None, Query(alias="sortPrice", pattern="^(asc|desc)$", description="价格排序：asc 升序 / desc 降序")] = None,
     sort_time: Annotated[str | None, Query(alias="sortTime", pattern="^(asc|desc)$", description="时间排序：asc 升序 / desc 降序")] = None,
+    is_hot: Annotated[bool | None, Query(alias="isHot", description="是否热门")] = None,
+    is_top10: Annotated[bool | None, Query(alias="isTop10", description="是否排行前十")] = None,
+    is_today: Annotated[bool | None, Query(alias="isToday", description="是否今日推荐")] = None,
+    allow_multiple_purchase: Annotated[bool | None, Query(alias="allowMultiplePurchase", description="是否允许多次购买")] = None,
+    is_time_slot: Annotated[bool | None, Query(alias="isTimeSlot", description="是否时间段商品")] = None,
+    time_slot: Annotated[str | None, Query(alias="timeSlot", description="时间段文本，如 10-12")] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> MallProductListResponse:
@@ -189,6 +201,19 @@ def mobile_list_products(
     q = db.query(MallProduct).filter(MallProduct.status == "on_sale")
     if keyword:
         q = q.filter(MallProduct.title.ilike(f"%{keyword}%"))
+    if is_hot is not None:
+        q = q.filter(MallProduct.is_hot == is_hot)
+    if is_top10 is not None:
+        q = q.filter(MallProduct.is_top10 == is_top10)
+    if is_today is not None:
+        q = q.filter(MallProduct.is_today == is_today)
+    if allow_multiple_purchase is not None:
+        q = q.filter(MallProduct.allow_multiple_purchase == allow_multiple_purchase)
+    if is_time_slot is not None:
+        q = q.filter(MallProduct.is_time_slot == is_time_slot)
+    if time_slot:
+        q = q.filter(MallProduct.time_slot == time_slot)
+        
     total = q.count()
 
     order_clauses = []

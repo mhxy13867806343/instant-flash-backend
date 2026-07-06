@@ -76,6 +76,12 @@ def _product_out(db: Session, p: MallProduct) -> MallProductOut:
         remark=p.remark,
         createTime=p.create_time,
         updateTime=p.update_time,
+        isHot=p.is_hot,
+        isTop10=p.is_top10,
+        isToday=p.is_today,
+        allowMultiplePurchase=p.allow_multiple_purchase,
+        isTimeSlot=p.is_time_slot,
+        timeSlot=p.time_slot,
         likesCount=likes_cnt,
         favoritesCount=favs_cnt,
         sharesCount=shares_cnt,
@@ -213,6 +219,12 @@ def create_product(
         status=payload.status,
         sort=payload.sort,
         remark=payload.remark,
+        is_hot=payload.is_hot,
+        is_top10=payload.is_top10,
+        is_today=payload.is_today,
+        allow_multiple_purchase=payload.allow_multiple_purchase,
+        is_time_slot=payload.is_time_slot,
+        time_slot=payload.time_slot,
     )
     db.add(p)
     db.commit()
@@ -291,6 +303,13 @@ def update_product(
     for key, value in data.items():
         db_key = field_map.get(key, key)
         setattr(p, db_key, value)
+
+    # 联动时间段校验
+    if p.is_time_slot is False:
+        p.time_slot = None
+    elif p.is_time_slot is True:
+        if not p.time_slot or not p.time_slot.strip():
+            raise fail(status.HTTP_400_BAD_REQUEST, "时间段商品必须选择并填写时间段 text (timeSlot)")
 
     db.commit()
     db.refresh(p)
