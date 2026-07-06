@@ -10,7 +10,7 @@ from app.models.user import User, UserThirdPartyBinding, UserFollow, UserPersona
 from app.models.user_config import UserCustomConfig
 from app.models.mall import MallSetting, MallProduct, MallOrder, MallPaymentMethod, MallProductComment, MallProductCommentAppend, MallProductLike, MallProductFavorite, MallProductShare, MallOrderLogisticsStep, MallCustomerService, MallChatSession, MallChatMessage, MallProductBargain
 from app.models.wallet import UserWallet, WalletRecord
-from app.models.chat import GlobalChatSession, GlobalChatMessage, ChatGroup, ChatGroupMember, ChatGroupMessage, ChatMessageFavorite
+from app.models.chat import GlobalChatSession, GlobalChatMessage, ChatGroup, ChatGroupMember, ChatGroupMessage, ChatMessageFavorite, ChatGroupJoinRequest
 
 __all__ = [
     "AdminAgreement",
@@ -66,5 +66,6 @@ __all__ = [
     "ChatGroupMember",
     "ChatGroupMessage",
     "ChatMessageFavorite",
+    "ChatGroupJoinRequest",
 ]
 

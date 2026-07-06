@@ -54,6 +54,7 @@ class GroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64, description="群名称")
     avatar: str | None = Field(default=None, max_length=512)
     memberIds: list[str] = Field(default_factory=list, description="初始邀请的成员用户 ID 列表")
+    region: str | None = Field(default=None, max_length=128, description="群聊所属地区")
 
 
 class GroupUpdate(BaseModel):
@@ -61,6 +62,7 @@ class GroupUpdate(BaseModel):
     avatar: str | None = Field(default=None, max_length=512)
     announcement: str | None = Field(default=None, max_length=1000)
     isMuted: bool | None = Field(default=None, description="全员禁言")
+    region: str | None = Field(default=None, max_length=128)
 
 
 class GroupOut(BaseModel):
@@ -77,8 +79,23 @@ class GroupOut(BaseModel):
     lastMessage: str | None = None
     lastMessageTime: str | None = None
     status: str
+    region: str | None = None
     createTime: datetime
     updateTime: datetime
+
+
+class GroupJoinRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    requestId: str
+    groupId: str
+    userId: str
+    message: str | None = None
+    status: str
+    createTime: datetime
+    nickname: str | None = None
+    avatar: str | None = None
+
 
 
 class GroupMemberOut(BaseModel):

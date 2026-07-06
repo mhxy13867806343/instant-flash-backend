@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
@@ -19,6 +19,7 @@ from app.models.chat import (
     ChatGroupMember,
     ChatGroupMessage,
     ChatMessageFavorite,
+    ChatGroupJoinRequest,
 )
 from app.models.user import User, UserFollow
 from app.schemas.chat import (
@@ -35,6 +36,7 @@ from app.schemas.chat import (
     MessageFavoriteOut,
     MessageRecall,
     JoinByLinkPayload,
+    GroupJoinRequestOut,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["聊天系统"])
@@ -520,6 +522,7 @@ async def create_group(
         owner_id=current_user.user_id,
         member_count=1,
         status="active",
+        region=payload.region,
     )
     db.add(group)
     db.flush()
@@ -1183,4 +1186,231 @@ async def join_group_by_link(
         "avatar": group.avatar,
         "memberCount": group.member_count,
     }, "加入群聊成功")
+
+
+@router.get(
+    "/groups/search",
+    response_model=list[GroupOut],
+    summary="搜索群聊列表",
+    description="通过名称或公告内容、地区、群号/ID 搜索群聊，支持建群时间筛选和分页排序。",
+)
+def search_groups(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    keyword: Annotated[str | None, Query(description="关键词（模糊匹配群名称或公告）")] = None,
+    region: Annotated[str | None, Query(description="地区名称，如 北京")] = None,
+    group_id: Annotated[str | None, Query(alias="groupId", description="群号/ID（精确匹配）")] = None,
+    sort_time: Annotated[str | None, Query(alias="sortTime", pattern="^(asc|desc)$", description="时间排序：asc 升序 / desc 降序")] = None,
+    created_after: Annotated[datetime | None, Query(alias="createdAfter", description="创建时间起")] = None,
+    created_before: Annotated[datetime | None, Query(alias="createdBefore", description="创建时间止")] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[GroupOut]:
+    q = db.query(ChatGroup).filter(ChatGroup.status == "active")
+    if group_id:
+        q = q.filter(ChatGroup.group_id == group_id)
+    if region:
+        q = q.filter(ChatGroup.region.ilike(f"%{region}%"))
+    if keyword:
+        q = q.filter(
+            or_(
+                ChatGroup.name.ilike(f"%{keyword}%"),
+                ChatGroup.announcement.ilike(f"%{keyword}%")
+            )
+        )
+    if created_after:
+        q = q.filter(ChatGroup.create_time >= created_after)
+    if created_before:
+        q = q.filter(ChatGroup.create_time <= created_before)
+
+    if sort_time == "asc":
+        q = q.order_by(ChatGroup.create_time.asc())
+    elif sort_time == "desc":
+        q = q.order_by(ChatGroup.create_time.desc())
+    else:
+        q = q.order_by(ChatGroup.create_time.desc())
+
+    groups = q.offset((page - 1) * limit).limit(limit).all()
+    return groups
+
+
+@router.post(
+    "/groups/{group_id}/apply",
+    summary="申请加入群聊",
+    description="用户申请加入某个群聊。如果已经是成员或已有待审批申请，则报错。",
+)
+def apply_to_group(
+    group_id: Annotated[str, Path(description="群 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    message: Annotated[str | None, Query(description="申请理由，限 200 字", max_length=200)] = None,
+) -> dict[str, Any]:
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该群聊不存在")
+
+    is_member = db.query(ChatGroupMember).filter(
+        ChatGroupMember.group_id == group_id,
+        ChatGroupMember.user_id == current_user.user_id
+    ).first() is not None
+    if is_member:
+        raise fail(status.HTTP_400_BAD_REQUEST, "你已经是该群的成员")
+
+    existing_req = db.query(ChatGroupJoinRequest).filter(
+        ChatGroupJoinRequest.group_id == group_id,
+        ChatGroupJoinRequest.user_id == current_user.user_id,
+        ChatGroupJoinRequest.status == "pending"
+    ).first()
+    if existing_req:
+        raise fail(status.HTTP_400_BAD_REQUEST, "你已提交过该群的入群申请，请耐心等待审批")
+
+    req = ChatGroupJoinRequest(
+        request_id=new_business_id("grpreq"),
+        group_id=group_id,
+        user_id=current_user.user_id,
+        message=message,
+        status="pending"
+    )
+    db.add(req)
+    db.commit()
+    return ok({"requestId": req.request_id}, "申请提交成功，等待群主审批")
+
+
+@router.get(
+    "/groups/{group_id}/join-requests",
+    response_model=list[GroupJoinRequestOut],
+    summary="获取入群申请列表",
+    description="限群主访问。获取该群聊下处于待审批(pending)或其他状态的申请记录。",
+)
+def list_group_join_requests(
+    group_id: Annotated[str, Path(description="群 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    status_filter: Annotated[str | None, Query(alias="status", description="状态筛选：pending / approved / rejected")] = "pending",
+) -> list[GroupJoinRequestOut]:
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该群聊不存在")
+
+    if group.owner_id != current_user.user_id:
+        raise fail(status.HTTP_403_FORBIDDEN, "只有群主可以查看入群申请")
+
+    q = db.query(ChatGroupJoinRequest).filter(ChatGroupJoinRequest.group_id == group_id)
+    if status_filter:
+        q = q.filter(ChatGroupJoinRequest.status == status_filter)
+
+    requests = q.order_by(ChatGroupJoinRequest.create_time.desc()).all()
+
+    result = []
+    for r in requests:
+        user = db.query(User).filter(User.user_id == r.user_id).first()
+        out = GroupJoinRequestOut(
+            requestId=r.request_id,
+            groupId=r.group_id,
+            userId=r.user_id,
+            message=r.message,
+            status=r.status,
+            createTime=r.create_time,
+            nickname=user.nickname if user else None,
+            avatar=user.avatar if user else None
+        )
+        result.append(out)
+    return result
+
+
+@router.post(
+    "/join-requests/{request_id}/approve",
+    summary="同意入群申请",
+    description="限群主操作。同意该申请，将用户加入群聊，并发送系统消息和WS广播通知。",
+)
+async def approve_join_request(
+    request_id: Annotated[str, Path(description="申请 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    req = db.query(ChatGroupJoinRequest).filter(ChatGroupJoinRequest.request_id == request_id).first()
+    if req is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该申请记录不存在")
+
+    if req.status != "pending":
+        raise fail(status.HTTP_400_BAD_REQUEST, f"该申请已被处理，当前状态为 {req.status}")
+
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == req.group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该群聊不存在或已被解散")
+
+    if group.owner_id != current_user.user_id:
+        raise fail(status.HTTP_403_FORBIDDEN, "只有群主可以审批入群申请")
+
+    if group.member_count >= group.max_members:
+        raise fail(status.HTTP_400_BAD_REQUEST, "群成员已达上限")
+
+    is_member = db.query(ChatGroupMember).filter(
+        ChatGroupMember.group_id == req.group_id,
+        ChatGroupMember.user_id == req.user_id
+    ).first() is not None
+
+    if not is_member:
+        new_member = ChatGroupMember(
+            group_id=req.group_id,
+            user_id=req.user_id,
+            role="member",
+        )
+        db.add(new_member)
+        group.member_count += 1
+
+        requester = db.query(User).filter(User.user_id == req.user_id).first()
+        req_name = requester.nickname if (requester and requester.nickname) else req.user_id
+        sys_msg = ChatGroupMessage(
+            message_id=new_business_id("grpm"),
+            group_id=req.group_id,
+            sender_id=current_user.user_id,
+            content=f"{req_name} 经群主审批同意加入了群聊",
+            msg_type="system",
+            is_recalled=False,
+        )
+        db.add(sys_msg)
+
+    req.status = "approved"
+    db.commit()
+
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == req.group_id).all()
+    member_ids = [m.user_id for m in members]
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_members_updated",
+        {"groupId": req.group_id, "addedUserIds": [req.user_id], "viaApproval": True}
+    )
+
+    return ok(None, "已同意该入群申请")
+
+
+@router.post(
+    "/join-requests/{request_id}/reject",
+    summary="拒绝入群申请",
+    description="限群主操作。拒绝用户的入群申请。",
+)
+def reject_join_request(
+    request_id: Annotated[str, Path(description="申请 ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user_required)],
+) -> dict[str, Any]:
+    req = db.query(ChatGroupJoinRequest).filter(ChatGroupJoinRequest.request_id == request_id).first()
+    if req is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该申请记录不存在")
+
+    if req.status != "pending":
+        raise fail(status.HTTP_400_BAD_REQUEST, f"该申请已被处理，当前状态为 {req.status}")
+
+    group = db.query(ChatGroup).filter(ChatGroup.group_id == req.group_id, ChatGroup.status == "active").first()
+    if group is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "该群聊不存在或已被解散")
+
+    if group.owner_id != current_user.user_id:
+        raise fail(status.HTTP_403_FORBIDDEN, "只有群主可以审批入群申请")
+
+    req.status = "rejected"
+    db.commit()
+    return ok(None, "已拒绝该入群申请")
+
 

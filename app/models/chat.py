@@ -71,6 +71,8 @@ class ChatGroup(TimestampMixin, Base):
     last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_message_time: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    region: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+
 
 
 class ChatGroupMember(TimestampMixin, Base):
@@ -136,4 +138,24 @@ class ChatMessageFavorite(TimestampMixin, Base):
     media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     sender_id: Mapped[str] = mapped_column(String(64), nullable=False)
     sender_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ChatGroupJoinRequest(TimestampMixin, Base):
+    """群聊申请加入表。"""
+
+    __tablename__ = "chat_group_join_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    group_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("chat_groups.group_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)  # 申请理由
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False, index=True
+    )  # pending 待处理 / approved 已同意 / rejected 已拒绝
+
 
