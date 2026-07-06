@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user_required
 from app.api.utils import new_business_id
+from app.core.chat_ws import manager
 from app.db.base import utc_now
 from app.db.session import get_db
 from app.models.chat import (
@@ -82,7 +83,7 @@ def _private_msg_out(m: GlobalChatMessage) -> PrivateMessageOut:
     summary="发送私聊消息",
     description="在私聊会话中发送消息，支持文本、图片、视频、语音、文件、商品卡片、转发和位置等类型。",
 )
-def send_private_message(
+async def send_private_message(
     payload: PrivateMessageCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -138,7 +139,10 @@ def send_private_message(
 
     db.commit()
     db.refresh(msg)
-    return _private_msg_out(msg)
+    
+    out = _private_msg_out(msg)
+    await manager.send_private_message(current_user.user_id, receiver_id, out.model_dump(mode="json"))
+    return out
 
 
 @router.delete(
@@ -172,7 +176,7 @@ def delete_private_message(
     summary="撤回消息",
     description="撤回一条自己发送的消息（私聊或群聊，发送后 2 分钟以内可撤回）。",
 )
-def recall_message(
+async def recall_message(
     message_id: Annotated[str, Path(description="消息 ID")],
     payload: MessageRecall,
     db: Annotated[Session, Depends(get_db)],
@@ -200,6 +204,23 @@ def recall_message(
     msg.is_recalled = True
     msg.content = "该消息已撤回"
     db.commit()
+
+    # WebSocket 广播撤回事件
+    if payload.messageType == "private":
+        await manager.broadcast_system_event(
+            [msg.sender_id, msg.receiver_id],
+            "message_recall",
+            {"messageId": message_id, "messageType": "private", "sessionId": msg.session_id}
+        )
+    else:
+        members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == msg.group_id).all()
+        member_ids = [m.user_id for m in members]
+        await manager.broadcast_system_event(
+            member_ids,
+            "message_recall",
+            {"messageId": message_id, "messageType": "group", "groupId": msg.group_id}
+        )
+
     return ok(message="消息已撤回")
 
 
@@ -212,7 +233,7 @@ def recall_message(
     summary="转发消息",
     description="支持逐条转发和合并转发。可转发到私聊会话或群聊。最多可选 20 条消息。",
 )
-def forward_messages(
+async def forward_messages(
     payload: MessageForward,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -230,6 +251,9 @@ def forward_messages(
         raise fail(status.HTTP_404_NOT_FOUND, "未找到要转发的消息")
 
     forwarded = []
+    created_private_msgs = []
+    created_group_msgs = []
+    receiver_id = None
 
     if payload.mergeForward:
         # 合并转发：生成一条聚合消息
@@ -256,6 +280,7 @@ def forward_messages(
                 is_recalled=False,
             )
             db.add(msg)
+            created_private_msgs.append(msg)
             forwarded.append(msg.message_id)
             session.last_message = "[合并转发]"
             session.last_message_time = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -272,6 +297,7 @@ def forward_messages(
                 is_recalled=False,
             )
             db.add(msg)
+            created_group_msgs.append(msg)
             forwarded.append(msg.message_id)
             group.last_message = "[合并转发]"
             group.last_message_time = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -300,6 +326,7 @@ def forward_messages(
                     is_recalled=False,
                 )
                 db.add(msg)
+                created_private_msgs.append(msg)
                 forwarded.append(msg.message_id)
             else:
                 group = db.query(ChatGroup).filter(ChatGroup.group_id == payload.targetId, ChatGroup.status == "active").first()
@@ -320,9 +347,30 @@ def forward_messages(
                     is_recalled=False,
                 )
                 db.add(msg)
+                created_group_msgs.append(msg)
                 forwarded.append(msg.message_id)
 
     db.commit()
+
+    # WebSocket 推送
+    if payload.targetType == "private" and receiver_id:
+        for pm in created_private_msgs:
+            db.refresh(pm)
+            await manager.send_private_message(
+                current_user.user_id,
+                receiver_id,
+                _private_msg_out(pm).model_dump(mode="json")
+            )
+    elif payload.targetType == "group":
+        members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == payload.targetId).all()
+        member_ids = [m.user_id for m in members]
+        for gm in created_group_msgs:
+            db.refresh(gm)
+            out = GroupMessageOut.model_validate(gm)
+            out.senderName = current_user.nickname
+            out.senderAvatar = current_user.avatar
+            await manager.broadcast_to_group(payload.targetId, member_ids, out.model_dump(mode="json"))
+
     return ok({"forwardedCount": len(forwarded), "messageIds": forwarded}, "转发成功")
 
 
@@ -422,7 +470,7 @@ def delete_favorite(
     summary="创建群聊",
     description="创建一个新群聊，创建者自动成为群主。可在创建时邀请初始成员。",
 )
-def create_group(
+async def create_group(
     payload: GroupCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -448,6 +496,7 @@ def create_group(
 
     # 邀请初始成员
     added = 0
+    invited_uids = []
     for uid in payload.memberIds:
         if uid == current_user.user_id:
             continue
@@ -460,6 +509,7 @@ def create_group(
             )
             db.add(member)
             added += 1
+            invited_uids.append(uid)
 
     group.member_count = 1 + added
 
@@ -481,6 +531,15 @@ def create_group(
 
     db.commit()
     db.refresh(group)
+
+    # WS 实时广播群创建通知给被邀请者与创建者
+    all_invited_ids = invited_uids + [current_user.user_id]
+    await manager.broadcast_system_event(
+        all_invited_ids,
+        "group_created",
+        {"groupId": group.group_id, "groupName": group.name, "avatar": group.avatar}
+    )
+
     return GroupOut.model_validate(group)
 
 
@@ -525,7 +584,7 @@ def get_group(
     summary="修改群信息",
     description="群主或管理员可修改群名称、头像、公告、全员禁言等信息。",
 )
-def update_group(
+async def update_group(
     group_id: Annotated[str, Path(description="群 ID")],
     payload: GroupUpdate,
     db: Annotated[Session, Depends(get_db)],
@@ -560,6 +619,22 @@ def update_group(
 
     db.commit()
     db.refresh(group)
+
+    # WS 实时广播群信息更新给所有群成员
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_info_updated",
+        {
+            "groupId": group_id,
+            "name": group.name,
+            "avatar": group.avatar,
+            "announcement": group.announcement,
+            "isMuted": group.is_muted
+        }
+    )
+
     return GroupOut.model_validate(group)
 
 
@@ -568,7 +643,7 @@ def update_group(
     summary="解散群聊",
     description="仅群主可以解散群聊。",
 )
-def dissolve_group(
+async def dissolve_group(
     group_id: Annotated[str, Path(description="群 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -579,8 +654,20 @@ def dissolve_group(
     if group.owner_id != current_user.user_id:
         raise fail(status.HTTP_403_FORBIDDEN, "只有群主可以解散群聊")
 
+    # 在设置 dissolved 之前，先获取所有群成员的 ID 用以通知
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+
     group.status = "dissolved"
     db.commit()
+
+    # WS 实时广播解散通知给所有群成员
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_dissolved",
+        {"groupId": group_id}
+    )
+
     return ok(message="群聊已解散")
 
 
@@ -624,7 +711,7 @@ def list_group_members(
     "/groups/{group_id}/members",
     summary="邀请成员入群",
 )
-def invite_members(
+async def invite_members(
     group_id: Annotated[str, Path(description="群 ID")],
     payload: GroupInvite,
     db: Annotated[Session, Depends(get_db)],
@@ -676,7 +763,19 @@ def invite_members(
             is_recalled=False,
         )
         db.add(sys_msg)
+
     db.commit()
+
+    if added > 0:
+        # WS 实时广播群成员更新给所有当前群成员
+        members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+        member_ids = [m.user_id for m in members]
+        await manager.broadcast_system_event(
+            member_ids,
+            "group_members_updated",
+            {"groupId": group_id, "addedUserIds": payload.userIds}
+        )
+
     return ok({"addedCount": added}, f"已邀请 {added} 人入群")
 
 
@@ -685,7 +784,7 @@ def invite_members(
     summary="移除群成员",
     description="群主或管理员可移除普通成员。群主可移除管理员。",
 )
-def remove_member(
+async def remove_member(
     group_id: Annotated[str, Path(description="群 ID")],
     user_id: Annotated[str, Path(description="被移除的用户 ID")],
     db: Annotated[Session, Depends(get_db)],
@@ -716,6 +815,16 @@ def remove_member(
     db.delete(target)
     group.member_count = max(group.member_count - 1, 1)
     db.commit()
+
+    # WS 实时广播移除通知（通知其他在线群成员和被移除的人）
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members] + [user_id]
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_members_updated",
+        {"groupId": group_id, "removedUserId": user_id}
+    )
+
     return ok(message="已移除该成员")
 
 
@@ -724,7 +833,7 @@ def remove_member(
     summary="退出群聊",
     description="主动退出群聊。群主不能退出，需先转让或解散。",
 )
-def leave_group(
+async def leave_group(
     group_id: Annotated[str, Path(description="群 ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user_required)],
@@ -753,6 +862,16 @@ def leave_group(
     )
     db.add(sys_msg)
     db.commit()
+
+    # WS 实时广播退出通知
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+    await manager.broadcast_system_event(
+        member_ids,
+        "group_members_updated",
+        {"groupId": group_id, "leftUserId": current_user.user_id}
+    )
+
     return ok(message="已退出群聊")
 
 
@@ -787,7 +906,7 @@ def update_my_group_nickname(
     summary="发送群消息",
     description="在群聊中发送消息，支持文本、图片、视频、语音、文件、商品卡片、位置和转发等消息类型。",
 )
-def send_group_message(
+async def send_group_message(
     group_id: Annotated[str, Path(description="群 ID")],
     payload: GroupMessageCreate,
     db: Annotated[Session, Depends(get_db)],
@@ -842,6 +961,12 @@ def send_group_message(
     out.senderName = current_user.nickname
     out.senderAvatar = current_user.avatar
     out.atUserIds = payload.atUserIds
+
+    # WS 实时广播群消息给所有群成员
+    members = db.query(ChatGroupMember.user_id).filter(ChatGroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+    await manager.broadcast_to_group(group_id, member_ids, out.model_dump(mode="json"))
+
     return out
 
 

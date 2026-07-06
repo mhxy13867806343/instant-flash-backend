@@ -127,7 +127,7 @@ class MallProductComment(TimestampMixin, Base):
         "MallProductCommentAppend",
         back_populates="comment",
         cascade="all, delete-orphan",
-        order_by="MallProductCommentAppend.create_time.asc",
+        order_by="MallProductCommentAppend.create_time",
     )
 
 
