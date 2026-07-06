@@ -32,6 +32,7 @@ from app.api.topics import tags_router, topics_router
 from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.wallet import router as wallet_router
+from app.api.personas import router as personas_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
 from app.core.rate_limit import check_rate_limit
@@ -89,6 +90,7 @@ app.include_router(locations_router)
 app.include_router(uploads_router)
 app.include_router(users_router)
 app.include_router(messages_router)
+app.include_router(personas_router)
 app.include_router(feedback_router)
 app.include_router(agreements_router)
 app.include_router(agreements_legacy_router)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, JSON
+from datetime import datetime
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, JSON, DateTime
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -85,4 +86,88 @@ class UserFollow(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("user_id", "following_id", name="uq_user_follows_user_following"),
     )
+
+
+class UserPersona(TimestampMixin, Base):
+    """用户画像表。"""
+
+    __tablename__ = "user_personas"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    persona_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    title: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    images: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )
+    tags: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )
+    privacy: Mapped[str] = mapped_column(String(32), default="public", index=True, nullable=False)  # public / private
+    expire_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    user = relationship("User")
+    comments = relationship("UserPersonaComment", back_populates="persona", cascade="all, delete-orphan")
+    favorites = relationship("UserPersonaFavorite", back_populates="persona", cascade="all, delete-orphan")
+
+
+class UserPersonaComment(TimestampMixin, Base):
+    """用户画像评论表（只有一层）。"""
+
+    __tablename__ = "user_persona_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    comment_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    persona_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("user_personas.persona_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    persona = relationship("UserPersona", back_populates="comments")
+    user = relationship("User")
+
+
+class UserPersonaFavorite(TimestampMixin, Base):
+    """用户画像收藏表。"""
+
+    __tablename__ = "user_persona_favorites"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    favorite_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    persona_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("user_personas.persona_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    persona = relationship("UserPersona", back_populates="favorites")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "persona_id", name="uq_user_persona_favorites_user_persona"),
+    )
+
 
