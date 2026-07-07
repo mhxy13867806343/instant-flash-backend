@@ -101,6 +101,7 @@ class UserProfile(BaseModel):
     showViews: bool = Field(default=True, title="是否显示访问量")
     showComments: bool = Field(default=True, title="是否显示评论量")
     showFavorites: bool = Field(default=True, title="是否显示收藏量")
+    footprintCount: int = Field(default=0, title="足迹总数量")
 
 
 

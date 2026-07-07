@@ -39,7 +39,15 @@ def point_record_item(record: PointRecord) -> dict[str, object]:
     }
 
 
-def user_profile(user: User) -> UserProfile:
+def user_profile(user: User, db: Session | None = None) -> UserProfile:
+    footprint_count = 0
+    if db is not None:
+        from app.models.footprint import UserFootprint
+        footprint_count = db.query(UserFootprint).filter(
+            UserFootprint.user_id == user.user_id,
+            UserFootprint.is_deleted.is_(False)
+        ).count()
+
     return UserProfile(
         userId=user.user_id,
         openid=user.openid,
@@ -68,6 +76,7 @@ def user_profile(user: User) -> UserProfile:
         showViews=getattr(user, "show_views", True),
         showComments=getattr(user, "show_comments", True),
         showFavorites=getattr(user, "show_favorites", True),
+        footprintCount=footprint_count,
     )
 
 

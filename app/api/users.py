@@ -86,8 +86,11 @@ def save_avatar_upload(file: UploadFile, user_id: str) -> tuple[str, int, str]:
     summary="我的资料",
     description="获取当前登录用户资料。用户身份从 Authorization Bearer Token 中解析。",
 )
-def get_profile(current_user: Annotated[User, Depends(get_current_user_required)]) -> UserProfile:
-    return user_profile(current_user)
+def get_profile(
+    current_user: Annotated[User, Depends(get_current_user_required)],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserProfile:
+    return user_profile(current_user, db=db)
 
 
 @router.post(
@@ -177,7 +180,7 @@ def update_profile_settings(
     current_user.last_time = utc_now()
     db.commit()
     db.refresh(current_user)
-    return user_profile(current_user)
+    return user_profile(current_user, db=db)
 
 
 @router.put(
@@ -202,7 +205,7 @@ def update_profile(
     current_user.last_time = utc_now()
     db.commit()
     db.refresh(current_user)
-    return user_profile(current_user)
+    return user_profile(current_user, db=db)
 
 
 @router.post(
@@ -226,7 +229,7 @@ def upload_profile_avatar(
             "url": avatar_url,
             "size": size,
             "md5": md5,
-            "profile": user_profile(current_user).model_dump(),
+            "profile": user_profile(current_user, db=db).model_dump(),
         },
         "头像上传成功",
     )
@@ -281,7 +284,7 @@ def bind_phone(
     db.refresh(user)
 
     token = create_access_token(user.user_id)
-    profile = user_profile(user).model_dump()
+    profile = user_profile(user, db=db).model_dump()
     return ok(
         {
             "user": profile,
@@ -344,7 +347,7 @@ def import_user_data(
     current_user.last_time = utc_now()
     db.commit()
     db.refresh(current_user)
-    return ok(user_profile(current_user).model_dump(), "用户资料导入成功")
+    return ok(user_profile(current_user, db=db).model_dump(), "用户资料导入成功")
 
 
 @router.get(

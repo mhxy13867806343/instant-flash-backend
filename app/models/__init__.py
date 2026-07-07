@@ -12,8 +12,10 @@ from app.models.mall import MallSetting, MallProduct, MallOrder, MallPaymentMeth
 from app.models.wallet import UserWallet, WalletRecord
 from app.models.chat import GlobalChatSession, GlobalChatMessage, ChatGroup, ChatGroupMember, ChatGroupMessage, ChatMessageFavorite, ChatGroupJoinRequest
 from app.models.ai_model import AiModel, AiModelPlan, AiModelPromotion, AiModelUsageRecord, AiModelPointGrant, AiModelSubscription, AiModelUsageRecordLike, AiModelUsageRecordFavorite, AiModelUsageRecordComment
+from app.models.footprint import UserFootprint
 
 __all__ = [
+    "UserFootprint",
     "AdminAgreement",
     "AdminAccessRule",
     "AdminAccount",

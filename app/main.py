@@ -38,6 +38,7 @@ from app.api.personas import router as personas_router
 from app.api.admin_ai_model import router as admin_ai_model_router
 from app.api.ai_model import router as ai_model_router
 from app.api.utils_api import router as utils_api_router
+from app.api.footprints import router as footprints_router
 from app.core.config import settings
 from app.core.operation_log import record_operation_log, resolve_actor, should_skip_log
 from app.core.rate_limit import check_rate_limit
@@ -106,6 +107,7 @@ app.include_router(agreements_user_router)
 app.include_router(admin_ai_model_router)
 app.include_router(ai_model_router)
 app.include_router(utils_api_router)
+app.include_router(footprints_router)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
