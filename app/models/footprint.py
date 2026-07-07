@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Float, String, Text
+from sqlalchemy import Boolean, ForeignKey, Float, String, Text, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -27,3 +28,6 @@ class UserFootprint(TimestampMixin, Base):
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     location_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    images: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
+    )

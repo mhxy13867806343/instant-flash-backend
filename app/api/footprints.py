@@ -41,6 +41,7 @@ def create_footprint(
         latitude=payload.latitude,
         longitude=payload.longitude,
         location_name=payload.locationName,
+        images=payload.images,
         is_deleted=False,
     )
     db.add(f)

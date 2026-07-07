@@ -61,12 +61,14 @@ def test_footprints_flow() -> None:
             "latitude": 36.255,
             "longitude": 117.112,
             "locationName": "泰山景区",
+            "images": ["https://foo.com/img1.jpg", "https://foo.com/img2.jpg"],
         },
     )
     assert resp_create_a.status_code == 201
     footprint_a = resp_create_a.json()["data"]
     assert footprint_a["title"] == "登顶泰山"
     assert footprint_a["locationName"] == "泰山景区"
+    assert footprint_a["images"] == ["https://foo.com/img1.jpg", "https://foo.com/img2.jpg"]
     footprint_a_id = footprint_a["footprintId"]
 
     # 4. 获取资料，足迹数量应为 1
@@ -118,12 +120,14 @@ def test_footprints_flow() -> None:
             "title": "泰山主峰极顶",
             "latitude": 36.256,
             "description": "修改后的风景描述",
+            "images": ["https://foo.com/img_updated.jpg"],
         },
     )
     assert resp_edit.status_code == 200
     assert resp_edit.json()["data"]["title"] == "泰山主峰极顶"
     assert resp_edit.json()["data"]["latitude"] == 36.256
     assert resp_edit.json()["data"]["description"] == "修改后的风景描述"
+    assert resp_edit.json()["data"]["images"] == ["https://foo.com/img_updated.jpg"]
     # longitude 和 locationName 应该保持原样
     assert resp_edit.json()["data"]["longitude"] == 117.112
     assert resp_edit.json()["data"]["locationName"] == "泰山景区"

@@ -16,6 +16,7 @@ class FootprintCreate(BaseModel):
     latitude: float = Field(..., description="纬度坐标")
     longitude: float = Field(..., description="经度坐标")
     locationName: str | None = Field(default=None, description="位置名称/地址")
+    images: list[str] = Field(default_factory=list, description="图片地址列表")
 
 
 class FootprintUpdate(BaseModel):
@@ -26,6 +27,7 @@ class FootprintUpdate(BaseModel):
     latitude: float | None = Field(default=None, description="纬度坐标")
     longitude: float | None = Field(default=None, description="经度坐标")
     locationName: str | None = Field(default=None, description="位置名称/地址")
+    images: list[str] | None = Field(default=None, description="图片地址列表")
 
 
 class FootprintOut(BaseModel):
@@ -45,4 +47,5 @@ class FootprintOut(BaseModel):
     latitude: float
     longitude: float
     locationName: str | None = None
+    images: list[str] = Field(default_factory=list, description="图片地址列表")
     createTime: datetime
