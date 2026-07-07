@@ -95,6 +95,8 @@ def _product_out(
         allowMultiplePurchase=p.allow_multiple_purchase,
         isTimeSlot=p.is_time_slot,
         timeSlot=p.time_slot,
+        isCloned=p.is_cloned,
+        cloneUrl=p.clone_url,
         isLiked=is_liked,
         isFavorited=is_favorited,
         likesCount=likes_cnt,

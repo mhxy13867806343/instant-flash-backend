@@ -33,6 +33,7 @@ from app.schemas.mall import (
     MallProductUpdate,
     MallSettingOut,
     MallSettingUpdate,
+    MallProductCloneRequest,
     ORDER_STATUS_LABELS,
 )
 
@@ -82,6 +83,8 @@ def _product_out(db: Session, p: MallProduct) -> MallProductOut:
         allowMultiplePurchase=p.allow_multiple_purchase,
         isTimeSlot=p.is_time_slot,
         timeSlot=p.time_slot,
+        isCloned=p.is_cloned,
+        cloneUrl=p.clone_url,
         likesCount=likes_cnt,
         favoritesCount=favs_cnt,
         sharesCount=shares_cnt,
@@ -225,6 +228,8 @@ def create_product(
         allow_multiple_purchase=payload.allow_multiple_purchase,
         is_time_slot=payload.is_time_slot,
         time_slot=payload.time_slot,
+        is_cloned=payload.is_cloned,
+        clone_url=payload.clone_url,
     )
     db.add(p)
     db.commit()
@@ -314,6 +319,57 @@ def update_product(
     db.commit()
     db.refresh(p)
     return ok(_product_out(db, p).model_dump(), "商品已更新")
+
+
+@router.post(
+    "/products/{product_id}/clone",
+    status_code=201,
+    summary="克隆商品",
+    description="PC 端克隆指定商品。如果是克隆生成的商品，不能再次进行克隆。",
+)
+def clone_product(
+    product_id: Annotated[str, Path(description="被克隆商品的业务 ID")],
+    payload: MallProductCloneRequest,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[str, Depends(get_admin_subject)],
+) -> dict[str, Any]:
+    p = db.query(MallProduct).filter(MallProduct.product_id == product_id).first()
+    if p is None:
+        raise fail(status.HTTP_404_NOT_FOUND, "被克隆商品不存在")
+
+    # 已经被克隆过的商品不能再次克隆了
+    if getattr(p, "is_cloned", False):
+        raise fail(status.HTTP_400_BAD_REQUEST, "已经被克隆过的商品不能再次克隆了的")
+
+    new_p = MallProduct(
+        product_id=new_business_id("prod"),
+        title=payload.title or f"{p.title} (克隆)",
+        description=p.description,
+        images=p.images,
+        cover_image=p.cover_image,
+        cover_video=p.cover_video,
+        original_price=p.original_price,
+        current_price=p.current_price,
+        points_cost=p.points_cost,
+        points_only=p.points_only,
+        stock=p.stock,
+        sold_count=0,
+        status=p.status,
+        sort=p.sort,
+        remark=p.remark,
+        is_hot=p.is_hot,
+        is_top10=p.is_top10,
+        is_today=p.is_today,
+        allow_multiple_purchase=p.allow_multiple_purchase,
+        is_time_slot=p.is_time_slot,
+        time_slot=p.time_slot,
+        is_cloned=True,
+        clone_url=payload.cloneUrl,
+    )
+    db.add(new_p)
+    db.commit()
+    db.refresh(new_p)
+    return ok(_product_out(db, new_p).model_dump(), "商品克隆成功")
 
 
 @router.delete(

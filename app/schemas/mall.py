@@ -100,6 +100,8 @@ class MallProductCreate(BaseModel):
     allow_multiple_purchase: bool = Field(default=True, alias="allowMultiplePurchase", validation_alias=AliasChoices("allowMultiplePurchase", "allow_multiple_purchase"), title="是否允许购买多次")
     is_time_slot: bool = Field(default=False, alias="isTimeSlot", validation_alias=AliasChoices("isTimeSlot", "is_time_slot"), title="是否时间段商品")
     time_slot: str | None = Field(default=None, alias="timeSlot", validation_alias=AliasChoices("timeSlot", "time_slot"), max_length=64, title="具体时间段")
+    is_cloned: bool = Field(default=False, alias="isCloned", validation_alias=AliasChoices("isCloned", "is_cloned"), title="是否为克隆商品")
+    clone_url: str | None = Field(default=None, alias="cloneUrl", validation_alias=AliasChoices("cloneUrl", "clone_url"), max_length=512, title="克隆外链地址")
 
     @model_validator(mode="after")
     def set_default_current_price_and_time_slot(self) -> "MallProductCreate":
@@ -169,6 +171,8 @@ class MallProductUpdate(BaseModel):
     allow_multiple_purchase: bool | None = Field(default=None, alias="allowMultiplePurchase", validation_alias=AliasChoices("allowMultiplePurchase", "allow_multiple_purchase"))
     is_time_slot: bool | None = Field(default=None, alias="isTimeSlot", validation_alias=AliasChoices("isTimeSlot", "is_time_slot"))
     time_slot: str | None = Field(default=None, alias="timeSlot", validation_alias=AliasChoices("timeSlot", "time_slot"), max_length=64)
+    is_cloned: bool | None = Field(default=None, alias="isCloned", validation_alias=AliasChoices("isCloned", "is_cloned"), title="是否为克隆商品")
+    clone_url: str | None = Field(default=None, alias="cloneUrl", validation_alias=AliasChoices("cloneUrl", "clone_url"), max_length=512, title="克隆外链地址")
 
     @model_validator(mode="after")
     def validate_time_slot_update(self) -> "MallProductUpdate":
@@ -212,6 +216,8 @@ class MallProductOut(BaseModel):
     allowMultiplePurchase: bool = Field(default=True, title="是否允许多次购买")
     isTimeSlot: bool = Field(default=False, title="是否时间段商品")
     timeSlot: str | None = Field(default=None, title="具体时间段")
+    isCloned: bool = Field(default=False, title="是否为克隆商品")
+    cloneUrl: str | None = Field(default=None, title="克隆外链地址")
 
     
     # 互动属性拓展
@@ -225,6 +231,11 @@ class MallProductOut(BaseModel):
 class MallProductListResponse(BaseModel):
     items: list[MallProductOut]
     total: int
+
+
+class MallProductCloneRequest(BaseModel):
+    cloneUrl: str | None = Field(default=None, max_length=512, title="克隆外链地址")
+    title: str | None = Field(default=None, max_length=128, title="新商品标题（可选）")
 
 
 # ---------------------------------------------------------------------------

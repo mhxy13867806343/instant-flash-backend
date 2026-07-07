@@ -53,6 +53,8 @@ class MallProduct(TimestampMixin, Base):
     allow_multiple_purchase: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_time_slot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     time_slot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_cloned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    clone_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 
