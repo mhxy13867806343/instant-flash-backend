@@ -13,8 +13,14 @@ from app.models.wallet import UserWallet, WalletRecord
 from app.models.chat import GlobalChatSession, GlobalChatMessage, ChatGroup, ChatGroupMember, ChatGroupMessage, ChatMessageFavorite, ChatGroupJoinRequest
 from app.models.ai_model import AiModel, AiModelPlan, AiModelPromotion, AiModelUsageRecord, AiModelPointGrant, AiModelSubscription, AiModelUsageRecordLike, AiModelUsageRecordFavorite, AiModelUsageRecordComment
 from app.models.footprint import UserFootprint
+from app.models.movie import Movie, Cinema, MovieHall, MovieShowtime, MovieTicketOrder
 
 __all__ = [
+    "Movie",
+    "Cinema",
+    "MovieHall",
+    "MovieShowtime",
+    "MovieTicketOrder",
     "UserFootprint",
     "AdminAgreement",
     "AdminAccessRule",
